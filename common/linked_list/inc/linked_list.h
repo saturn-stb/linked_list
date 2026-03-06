@@ -26,9 +26,16 @@
 *
 *---------------------------------------------------------------------------*/
 // 데이터 구조체 정의 (linked_list.h 내용 가정)
-#define MAX_CHANNELS 10000
+#define MAX_CHANNELS           10000
 	
-#define SID_MASK		0x1FFF
+#define SID_MASK		       0x1FFF
+
+#define CHANNEL_LIST_ITEM      5
+
+#define CHANNEL_LIST_CONFIG_FILE "config.dat"
+#define CHANNEL_LIST_FILE        "channels.dat"
+#define CHANNEL_LIST_CSV_FILE    "channels_backup.csv"
+#define CHANNEL_LIST_JSON_FILE   "channels.json"
 
 /*-----------------------------------------------------------------------------
 *
@@ -78,6 +85,8 @@ typedef struct Node
 *
 *---------------------------------------------------------------------------*/
 extern void LinkedList_PrintAllChannels(void);
+extern void LinkedList_JsonToCsv(const char* jsonFilename, const char* csvFilename);
+extern void LinkedList_CsvToJson(const char* csvFilename, const char* jsonFilename);
 extern void LinkedList_ImportFromCSV(const char* filename);
 extern void LinkedList_ExportToCSV(const char* filename);
 extern void LinkedList_SearchChannelByName(char *name);

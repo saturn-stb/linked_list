@@ -68,6 +68,7 @@ void printHelp(void)
 	Print("\n  9. Search (Name)      : Search channels by name keyword");
 	Print("\n 10. CSV Export         : Export data to 'channels_backup.csv'");
 	Print("\n 11. CSV Import         : Import data from 'channels_backup.csv'");
+	Print("\n 12. Convert to JSON    : Convert data from 'channels_backup.csv");
 	Print("\n  0. Exit               : Save and terminate the program");
 	Print("\n================================================================\n");
 	Print(" Tip: Type the number or 'help' to see this menu again.\n");
@@ -125,7 +126,7 @@ int main()
 	// 2. 자동 로드 기능 실행
 	currentSortType = LinkedList_LoadConfig(); // 마지막 저장된 설정 읽기
 	Print("System initialized. Last sort criteria: %s\n", currentSortType == 0 ? "CH" : "LCN");
-	LinkedList_LoadFromFile("channels.dat", currentSortType);
+	LinkedList_LoadFromFile(CHANNEL_LIST_FILE, currentSortType);
 
 	// 프로그램 시작 시 도움말 한 번 출력
     printHelp();
@@ -230,8 +231,9 @@ int main()
 				int sType;
 				Print("Select Sort Type (0:CH, 1:LCN):");
 				scanf("%d", &sType);
-				if(LinkedList_SaveToFile("channels.dat", sType) == 0)
+				if(LinkedList_SaveToFile(CHANNEL_LIST_FILE, sType) == 0)
 				{
+					LinkedList_SaveConfig(sType); // 정렬 기준 저장
 					currentSortType = sType;
 				}
 				break;
@@ -241,7 +243,7 @@ int main()
 				int sType;
 				Print("Select sort criteria for loading (0:BY CH, 1:BY LCN):");
 				scanf("%d", &sType);
-				LinkedList_LoadFromFile("channels.dat", sType);
+				LinkedList_LoadFromFile(CHANNEL_LIST_FILE, sType);
 				break;
 			}
 			case 7:
@@ -279,8 +281,10 @@ int main()
 				LinkedList_SearchChannelByName(searchName);
 			}
 			break;
-			case 10: LinkedList_ExportToCSV("channels_backup.csv"); break;
-			case 11: LinkedList_ImportFromCSV("channels_backup.csv"); break;
+			case 10: LinkedList_ExportToCSV(CHANNEL_LIST_CSV_FILE); break;
+			case 11: LinkedList_ImportFromCSV(CHANNEL_LIST_CSV_FILE); break;
+			case 12: LinkedList_CsvToJson(CHANNEL_LIST_CSV_FILE, CHANNEL_LIST_JSON_FILE); break;
+			case 13: LinkedList_JsonToCsv(CHANNEL_LIST_JSON_FILE, CHANNEL_LIST_CSV_FILE); break;
 			case 0: LinkedList_Free(); return 0;
             default: Print("Invalid choice.\n");
         }

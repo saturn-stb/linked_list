@@ -15,6 +15,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 
 #include "util.h"
 #include "linked_list.h"
@@ -115,6 +116,122 @@ void LinkedList_PrintAllChannels(void)
 	}
 }
 
+/*-----------------------------------------------------------------------------
+*
+*
+*
+*---------------------------------------------------------------------------*/
+void LinkedList_JsonToCsv(const char* jsonFilename, const char* csvFilename)
+{
+	FILE* jsonFile = fopen(jsonFilename, "r");
+	FILE* csvFile = fopen(csvFilename, "w");
+	if (!jsonFile || !csvFile)
+	{
+		Print("Error: File open failed.\n");
+		if (jsonFile) fclose(jsonFile);
+		if (csvFile) fclose(csvFile);
+		return;
+	}
+
+	char line[512];
+
+	// CSV 헤더 출력
+	fprintf(csvFile, "CH,Name,Fav,LCN,SID\n");
+
+	// JSON 파일을 줄 단위로 순회
+	while (fgets(line, sizeof(line), jsonFile))
+	{
+		// 중괄호 { 가 나오면 새로운 레코드 시작 가능성
+		if (strstr(line, "{"))
+		{
+			char ch[16] = "", name[64] = "", fav[64] = "", lcn[16] = "", sid[16] = "";
+			
+			// 각 필드 값 추출 (JSON 내의 "key": "value" 구조를 파싱)
+			while (fgets(line, sizeof(line), jsonFile) && !strstr(line, "}"))
+			{
+				if (strstr(line, "\"CH\"")) sscanf(line, "%*[^:]: \"%[^\"]\"", ch);
+				else if (strstr(line, "\"Name\"")) sscanf(line, "%*[^:]: \"%[^\"]\"", name);
+				else if (strstr(line, "\"Fav\"")) sscanf(line, "%*[^:]: \"%[^\"]\"", fav);
+				else if (strstr(line, "\"LCN\"")) sscanf(line, "%*[^:]: \"%[^\"]\"", lcn);
+				else if (strstr(line, "\"SID\"")) sscanf(line, "%*[^:]: \"%[^\"]\"", sid);
+			}
+			
+			// CSV 파일에 기록
+			fprintf(csvFile, "%s,\"%s\",\"%s\",%s,%s\n", ch, name, fav, lcn, sid);
+		}
+	}
+
+	fclose(jsonFile);
+	fclose(csvFile);
+	Print("Successfully converted JSON file to CSV.\n");
+}
+
+/*-----------------------------------------------------------------------------
+*
+*
+*
+*---------------------------------------------------------------------------*/
+void LinkedList_CsvToJson(const char* csvFilename, const char* jsonFilename)
+{
+    FILE* csvFile = fopen(csvFilename, "r");
+    FILE* jsonFile = fopen(jsonFilename, "w");
+    if (!csvFile || !jsonFile)
+	{
+        Print("Error opening files.\n");
+        if (csvFile) fclose(csvFile);
+        if (jsonFile) fclose(jsonFile);
+        return;
+    }
+
+    char line[512];
+    char headers[5][32]; // CH, Name, Fav, LCN, SID
+    int colCount = 0;
+
+    // 1. 헤더 파싱 (첫 줄 읽기)
+    if (fgets(line, sizeof(line), csvFile))
+	{
+        char* token = strtok(line, ", \n\r");
+        while (token && colCount < CHANNEL_LIST_ITEM)
+		{
+            strcpy(headers[colCount++], token);
+            token = strtok(NULL, ", \n\r");
+        }
+    }
+
+    // 2. JSON 배열 시작
+    fprintf(jsonFile, "[\n");
+
+    // 3. 데이터 읽기 및 JSON 객체 변환
+    int first = 1;
+    while (fgets(line, sizeof(line), csvFile))
+	{
+        if (!first) fprintf(jsonFile, ",\n");
+        
+        char val[5][64];
+        int valCount = 0;
+        char* token = strtok(line, ", \n\r");
+        while (token && valCount < CHANNEL_LIST_ITEM)
+		{
+            strcpy(val[valCount++], token);
+            token = strtok(NULL, ", \n\r");
+        }
+
+        fprintf(jsonFile, "  {\n");
+        for (int i = 0; i < valCount; i++)
+		{
+            fprintf(jsonFile, "    \"%s\": \"%s\"%s\n", 
+                    headers[i], val[i], (i == valCount - 1) ? "" : ",");
+        }
+        fprintf(jsonFile, "  }");
+        first = 0;
+    }
+
+    fprintf(jsonFile, "\n]");
+    
+    fclose(csvFile);
+    fclose(jsonFile);
+    Print("Successfully converted CSV to JSON.\n");
+}
 
 /*-----------------------------------------------------------------------------
 *
@@ -160,7 +277,7 @@ void LinkedList_ImportFromCSV(const char* filename)
 		int isValid = 1;
 
 		// [검증 1] 파싱 성공 여부 및 기본값 체크
-		if (res != 5 || newNode->data.ch == 0 || strlen((char*)newNode->data.name) == 0)
+		if (res != CHANNEL_LIST_ITEM || newNode->data.ch == 0 || strlen((char*)newNode->data.name) == 0)
 		{
 			isValid = 0;
 		}
@@ -748,7 +865,7 @@ int LinkedList_SaveToFile(const char* filename, int sortType)
 	rewind(file);
 	fwrite(&count, sizeof(int), 1, file);
 	fclose(file);
-	LinkedList_SaveConfig(sortType); // 정렬 기준 저장
+	//LinkedList_SaveConfig(sortType); // 정렬 기준 저장
 	Print("\n[Save Success] %d channels (%s criteria)\n", count, sortType == 0 ? "CH" : "LCN");
 
 	return sortType;
@@ -761,7 +878,7 @@ int LinkedList_SaveToFile(const char* filename, int sortType)
 *---------------------------------------------------------------------------*/
 void LinkedList_SaveConfig(int sortType)
 {
-	FILE* file = fopen("config.dat", "wb");
+	FILE* file = fopen(CHANNEL_LIST_CONFIG_FILE, "wb");
 	if (file)
 	{
 		fwrite(&sortType, sizeof(int), 1, file);
@@ -777,7 +894,7 @@ void LinkedList_SaveConfig(int sortType)
 int LinkedList_LoadConfig(void)
 {
 	int savedType = 0;
-	FILE* file = fopen("config.dat", "rb");
+	FILE* file = fopen(CHANNEL_LIST_CONFIG_FILE, "rb");
 	if (file) 
 	{
 		fread(&savedType, sizeof(int), 1, file);
