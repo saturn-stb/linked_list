@@ -59,30 +59,7 @@ unsigned short lastAssignedCh = 0; // 마지막으로 부여된 채널 번호 추적
 *
 *
 *---------------------------------------------------------------------------*/
-void LinkedList_PrintAllChannels(void)
-{
-	if (head == NULL)
-	{
-		Print("\nNo channels registered.\n");
-		return;
-	}
-	Print("\n%-10s %-20s %-15s %-10s %-10s\n", "CH", "NAME", "FAV", "LCN", "SID");
-	Print("----------------------------------------------------------------------\n");
-	Node* curr = head;
-	while (curr != NULL)
-	{
-		Print("%-10u %-20s %-15s %-10u %-10u\n", 
-		curr->data.ch, curr->data.name, curr->data.fav, curr->data.lcn, curr->data.sid);
-		curr = curr->next;
-	}
-}
-
-/*-----------------------------------------------------------------------------
-*
-*
-*
-*---------------------------------------------------------------------------*/
-int isDuplicateSID(unsigned short sid)
+static int isDuplicateSID(unsigned short sid)
 {
 	Node* curr = head;
 	while (curr != NULL)
@@ -101,7 +78,7 @@ int isDuplicateSID(unsigned short sid)
 *
 *
 *---------------------------------------------------------------------------*/
-int isDuplicateCH(unsigned short ch)
+static int isDuplicateCH(unsigned short ch)
 {
 	Node* curr = head;
 	while (curr != NULL)
@@ -114,6 +91,30 @@ int isDuplicateCH(unsigned short ch)
 	}
 	return 0; // 중복 없음
 }
+
+/*-----------------------------------------------------------------------------
+*
+*
+*
+*---------------------------------------------------------------------------*/
+void LinkedList_PrintAllChannels(void)
+{
+	if (head == NULL)
+	{
+		Print("\nNo channels registered.\n");
+		return;
+	}
+	Print("\n%-10s %-20s %-15s %-10s %-10s\n", "CH", "NAME", "FAV", "LCN", "SID");
+	Print("----------------------------------------------------------------------\n");
+	Node* curr = head;
+	while (curr != NULL)
+	{
+		Print("%-10u %-20s %-15s %-10u %-10u\n", 
+		curr->data.ch, curr->data.name, curr->data.fav, curr->data.lcn, curr->data.sid);
+		curr = curr->next;
+	}
+}
+
 
 /*-----------------------------------------------------------------------------
 *
