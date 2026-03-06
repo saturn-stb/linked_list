@@ -278,7 +278,7 @@ void LinkedList_ExportToCSV(const char* filename)
 *
 *
 *---------------------------------------------------------------------------*/
-void LinkedList_SearchChannelByName(char *searchName)
+void LinkedList_SearchChannelByName(char *name)
 {
 	int foundCount = 0;
 
@@ -288,7 +288,7 @@ void LinkedList_SearchChannelByName(char *searchName)
 		return;
 	}
 
-	Print("\n[ Search Results for '%s' ]\n", searchName);
+	Print("\n[ Search Results for '%s' ]\n", name);
 	Print("%-10s %-20s %-15s %-10s\n", "CH", "NAME", "FAV", "LCN");
 	Print("------------------------------------------------------------\n");
 
@@ -296,7 +296,7 @@ void LinkedList_SearchChannelByName(char *searchName)
 	while (curr != NULL)
 	{
 		// strstr: curr->data.name 안에 searchName이 포함되어 있는지 확인
-		if (strstr((const char*)curr->data.name, searchName) != NULL)
+		if (strstr((const char*)curr->data.name, name) != NULL)
 		{
 			Print("%-10u %-20s %-15s %-10u %-10u\n", 
 			curr->data.ch, curr->data.name, curr->data.fav, curr->data.lcn, curr->data.sid);
@@ -430,16 +430,12 @@ void LinkedList_DeleteChannel(unsigned short ch)
 *
 *
 *---------------------------------------------------------------------------*/
-void LinkedList_SearchChannel(void)
+void LinkedList_SearchChannel(unsigned short ch)
 {
-	unsigned short searchCh;
-	Print("\nEnter Channel Number to search:");
-	scanf("%hu", &searchCh);
-
 	Node* curr = head;
 	while (curr != NULL)
 	{
-		if (curr->data.ch == searchCh)
+		if (curr->data.ch == ch)
 		{
 			Print("\n[Found channel!] NAME: %s, FAV: %s, LCN: %u SID: %u\n", 
 			curr->data.name, curr->data.fav, curr->data.lcn, curr->data.sid);
@@ -455,7 +451,7 @@ void LinkedList_SearchChannel(void)
 *
 *
 *---------------------------------------------------------------------------*/
-void LinkedList_AddChannel(CHANNEL_LIST chList)
+void LinkedList_AddChannel(CHANNEL_LIST list)
 {
 	Node* newNode = NULL;
 	if (freeListHead != NULL)
@@ -478,24 +474,24 @@ void LinkedList_AddChannel(CHANNEL_LIST chList)
 	Print("Assigning Channel Number : %u\n", newNode->data.ch);
 
 	// 2. 채널 이름 입력 및 검증
-	Print("Channel Name : %s\n", chList.name);
-	memcpy(newNode->data.name, chList.name, sizeof(chList.name));
+	Print("Channel Name : %s\n", list.name);
+	memcpy(newNode->data.name, list.name, sizeof(list.name));
 	if (strlen((char*)newNode->data.name) == 0)
 	{
 		sprintf((char*)newNode->data.name, "channel_%d", newNode->data.ch);
 	}
 
 	// 3. 즐겨찾기 입력
-	Print("Favorite : %s\n", chList.fav);
-	memcpy(newNode->data.fav, chList.fav, sizeof(chList.fav));
+	Print("Favorite : %s\n", list.fav);
+	memcpy(newNode->data.fav, list.fav, sizeof(list.fav));
 
 	// 4. LCN 입력
-	Print("Logical Channel Number : %d\n", chList.lcn);
-	newNode->data.lcn = chList.lcn;
+	Print("Logical Channel Number : %d\n", list.lcn);
+	newNode->data.lcn = list.lcn;
 
 	// 5. Service ID 입력 및 검증
-	Print("Service ID : %d\n", chList.sid);
-	newNode->data.sid = chList.sid;
+	Print("Service ID : %d\n", list.sid);
+	newNode->data.sid = list.sid;
 
 	// [검증 1] SID 0 체크
 	// 0x2000 이상의 비트가 포함되어 있거나, 마스킹 후 0이 되는 경우 차단

@@ -356,7 +356,14 @@ int *addr, *num, *code, bytes[];
 	ptr = theline+1;
 	if (!sscanf(ptr, "%02x", &len)) return 0;
 	ptr += 2;
+#if 1
+	if ((size_t)strlen(theline) < (size_t)(11 + (len * 2)))
+	{
+		return 0;
+	}
+#else
 	if ( strlen(theline) < (11 + (len * 2)) ) return 0;
+#endif
 	if (!sscanf(ptr, "%04x", addr)) return 0;
 	ptr += 4;
 	  /* printf("Line: length=%d Addr=%d\n", len, *addr); */
@@ -420,7 +427,10 @@ char *filename;
 				printf(" %08X to %08X\n", minaddr, maxaddr);
 				return;
 			}
-			if (status == 2) ;  /* begin of file */
+			if (status == 2)
+			{
+				/* begin of file */
+			}
 		} else {
 			printf("   Error: '%s', line: %d\n", filename, lineno);
 		}

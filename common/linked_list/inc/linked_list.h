@@ -80,12 +80,12 @@ typedef struct Node
 extern void LinkedList_PrintAllChannels(void);
 extern void LinkedList_ImportFromCSV(const char* filename);
 extern void LinkedList_ExportToCSV(const char* filename);
-extern void LinkedList_SearchChannelByName(char *searchName);
+extern void LinkedList_SearchChannelByName(char *name);
 extern void LinkedList_SortByLCN(void);
 extern void LinkedList_UpdateChannelName(unsigned short ch, char *name);
 extern void LinkedList_DeleteChannel(unsigned short ch);
-extern void LinkedList_SearchChannel(void);
-extern void LinkedList_AddChannel(CHANNEL_LIST chList);
+extern void LinkedList_SearchChannel(unsigned short ch);
+extern void LinkedList_AddChannel(CHANNEL_LIST list);
 extern void LinkedList_LoadFromFile(const char* filename, int sortType);
 extern int LinkedList_SaveToFile(const char* filename, int sortType);
 extern void LinkedList_SaveConfig(int sortType);

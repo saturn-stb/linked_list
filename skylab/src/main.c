@@ -56,21 +56,21 @@ int currentSortType = 0; // 기본값 0 (CH 기준)
 *---------------------------------------------------------------------------*/
 void printHelp(void)
 {
-	printf("\n======================= [ PROGRAM MENU ] =======================");
-	printf("\n  1. Add Channel        : Register a new channel");
-	printf("\n  2. Print All          : Display all registered channels");
-	printf("\n  3. Search (Num)       : Find a channel by its number (CH)");
-	printf("\n  4. Delete Channel     : Remove a channel from the list");
-	printf("\n  5. Save to File       : Save current data with sort options");
-	printf("\n  6. Load from File     : Load data and sort (CH or LCN)");
-	printf("\n  7. Update Name        : Modify an existing channel's name");
-	printf("\n  8. Sort by LCN        : Reorder the list by LCN number");
-	printf("\n  9. Search (Name)      : Search channels by name keyword");
-	printf("\n 10. CSV Export         : Export data to 'channels_backup.csv'");
-	printf("\n 11. CSV Import         : Import data from 'channels_backup.csv'");
-	printf("\n  0. Exit               : Save and terminate the program");
-	printf("\n================================================================\n");
-	printf(" Tip: Type the number or 'help' to see this menu again.\n");
+	Print("\n======================= [ PROGRAM MENU ] =======================");
+	Print("\n  1. Add Channel        : Register a new channel");
+	Print("\n  2. Print All          : Display all registered channels");
+	Print("\n  3. Search (Num)       : Find a channel by its number (CH)");
+	Print("\n  4. Delete Channel     : Remove a channel from the list");
+	Print("\n  5. Save to File       : Save current data with sort options");
+	Print("\n  6. Load from File     : Load data and sort (CH or LCN)");
+	Print("\n  7. Update Name        : Modify an existing channel's name");
+	Print("\n  8. Sort by LCN        : Reorder the list by LCN number");
+	Print("\n  9. Search (Name)      : Search channels by name keyword");
+	Print("\n 10. CSV Export         : Export data to 'channels_backup.csv'");
+	Print("\n 11. CSV Import         : Import data from 'channels_backup.csv'");
+	Print("\n  0. Exit               : Save and terminate the program");
+	Print("\n================================================================\n");
+	Print(" Tip: Type the number or 'help' to see this menu again.\n");
 }
 
 /*-----------------------------------------------------------------------------
@@ -124,7 +124,7 @@ int main()
 
 	// 2. 자동 로드 기능 실행
 	currentSortType = LinkedList_LoadConfig(); // 마지막 저장된 설정 읽기
-	printf("System initialized. Last sort criteria: %s\n", currentSortType == 0 ? "CH" : "LCN");
+	Print("System initialized. Last sort criteria: %s\n", currentSortType == 0 ? "CH" : "LCN");
 	LinkedList_LoadFromFile("channels.dat", currentSortType);
 
 	// 프로그램 시작 시 도움말 한 번 출력
@@ -132,12 +132,12 @@ int main()
 
     while (1)
 	{
-		printf("\n[Sort:%s] Select menu (type 'help' for menu): ", currentSortType == 0 ? "CH" : "LCN");
+		Print("\n[Sort:%s] Select menu (type 'help' for menu): ", currentSortType == 0 ? "CH" : "LCN");
 		
 		// 1. 입력을 문자열로 받음
 		if (scanf("%s", input) != 1)
 		{
-            printf("Please enter a numeric value.\n");
+            Print("Please enter a numeric value.\n");
             clearInputBuffer(); // 잘못된 문자 입력 시 버퍼 비우기
             continue;
         }
@@ -156,7 +156,7 @@ int main()
 		// 사용자가 '0'을 입력한 것인지, 숫자가 아닌 문자를 입력해서 0이 된 것인지 구분
         if (choice == 0 && strcmp(input, "0") != 0)
 		{
-            printf("Invalid input. Type 'help' for menu.\n");
+            Print("Invalid input. Type 'help' for menu.\n");
             continue;
         }
 
@@ -168,20 +168,20 @@ int main()
 				CHANNEL_LIST chList;
 				memset(&chList, 0x0, sizeof(CHANNEL_LIST));
 
-				printf("\nEnter Channel Name: ");
+				Print("\nEnter Channel Name: ");
 				safeGets((char *)chList.name, sizeof(chList.name));
 				if (strlen((char*)chList.name) == 0)
 				{
-					printf("Channel name cannot be empty. Cancellation...\n");
+					Print("Channel name cannot be empty. Cancellation...\n");
 					break;
 				}
 				
 				// 3. 즐겨찾기 입력
-				printf("Favorite : ");
+				Print("Favorite : ");
 				safeGets((char *)chList.fav, sizeof(chList.fav));
 				
 				// 4. LCN 입력
-				printf("Logical Channel Number: ");
+				Print("Logical Channel Number: ");
 				if (scanf("%hu", &(chList.lcn)) != 1)
 				{
 					chList.lcn = 0;
@@ -189,10 +189,10 @@ int main()
 				clearInputBuffer();
 				
 				// 5. Service ID 입력 및 검증
-				printf("Service ID (Cannot be 0): ");
+				Print("Service ID (Cannot be 0): ");
 				if (scanf("%hu", &(chList.sid)) != 1)
 				{
-					printf("Invalid input for SID. Cancellation...\n");
+					Print("Invalid input for SID. Cancellation...\n");
 					clearInputBuffer();
 					break;
 				}
@@ -202,7 +202,15 @@ int main()
             }
 			break;
             case 2: LinkedList_PrintAllChannels(); break;
-            case 3: LinkedList_SearchChannel(); break;
+            case 3:
+			{
+				unsigned short searchCh;
+				Print("\nEnter Channel Number to search:");
+				scanf("%hu", &searchCh);
+
+				LinkedList_SearchChannel(searchCh);
+				break;
+            }
             case 4:
 			{
 				unsigned short deleteCh;
@@ -220,7 +228,7 @@ int main()
 			case 5:
 			{
 				int sType;
-				printf("Select Sort Type (0:CH, 1:LCN):");
+				Print("Select Sort Type (0:CH, 1:LCN):");
 				scanf("%d", &sType);
 				if(LinkedList_SaveToFile("channels.dat", sType) == 0)
 				{
@@ -231,7 +239,7 @@ int main()
 			case 6:
 			{
 				int sType;
-				printf("Select sort criteria for loading (0:BY CH, 1:BY LCN):");
+				Print("Select sort criteria for loading (0:BY CH, 1:BY LCN):");
 				scanf("%d", &sType);
 				LinkedList_LoadFromFile("channels.dat", sType);
 				break;
@@ -274,12 +282,12 @@ int main()
 			case 10: LinkedList_ExportToCSV("channels_backup.csv"); break;
 			case 11: LinkedList_ImportFromCSV("channels_backup.csv"); break;
 			case 0: LinkedList_Free(); return 0;
-            default: printf("Invalid choice.\n");
+            default: Print("Invalid choice.\n");
         }
     }
 
 	LinkedList_Free();
-    printf("System exited.\n");
+    Print("System exited.\n");
 
     return 0;
 }
