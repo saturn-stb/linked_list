@@ -25,6 +25,35 @@
 *
 *
 *---------------------------------------------------------------------------*/
+// 데이터 구조체 정의 (linked_list.h 내용 가정)
+#define MAX_CHANNELS 10000
+	
+#define SID_MASK		0x1FFF
+
+/*-----------------------------------------------------------------------------
+*
+*
+*
+*---------------------------------------------------------------------------*/
+// Force 1-byte alignment for binary consistency
+#pragma pack(push, 1)
+
+typedef struct
+{
+	unsigned short ch;        // Channel Number (index)
+    unsigned char name[32];   // Channel Name
+    unsigned char fav[16];    // Favorite Status
+    unsigned short lcn;       // Logical Channel Number
+	unsigned short sid;       // Service ID
+} CHANNEL_LIST;
+
+typedef struct Node
+{
+    CHANNEL_LIST data;  // 채널 데이터
+    struct Node* next;  // 다음 노드 주소
+} Node;
+
+#pragma pack(pop)
 
 /*-----------------------------------------------------------------------------
 *
@@ -48,5 +77,20 @@
 *
 *
 *---------------------------------------------------------------------------*/
+extern void LinkedList_PrintAllChannels(void);
+extern void LinkedList_ImportFromCSV(const char* filename);
+extern void LinkedList_ExportToCSV(const char* filename);
+extern void LinkedList_SearchChannelByName(char *searchName);
+extern void LinkedList_SortByLCN(void);
+extern void LinkedList_UpdateChannelName(unsigned short ch, char *name);
+extern void LinkedList_DeleteChannel(unsigned short ch);
+extern void LinkedList_SearchChannel(void);
+extern void LinkedList_AddChannel(CHANNEL_LIST chList);
+extern void LinkedList_LoadFromFile(const char* filename, int sortType);
+extern int LinkedList_SaveToFile(const char* filename, int sortType);
+extern void LinkedList_SaveConfig(int sortType);
+extern int LinkedList_LoadConfig(void);
+extern int LinkedList_Free(void);
+extern int LinkedList_Init(void);
 
 #endif
