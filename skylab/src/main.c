@@ -68,7 +68,8 @@ void printHelp(void)
 	Print("\n  9. Search (Name)      : Search channels by name keyword");
 	Print("\n 10. CSV Export         : Export data to 'channels_backup.csv'");
 	Print("\n 11. CSV Import         : Import data from 'channels_backup.csv'");
-	Print("\n 12. Convert to JSON    : Convert data from 'channels_backup.csv");
+	Print("\n 12. Convert to JSON    : Convert data from 'channels_backup.json");
+	Print("\n 13. Convert to CSV     : Convert data from 'channels_backup.csv");
 	Print("\n  0. Exit               : Save and terminate the program");
 	Print("\n================================================================\n");
 	Print(" Tip: Type the number or 'help' to see this menu again.\n");
