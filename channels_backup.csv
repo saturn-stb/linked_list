@@ -1,7 +1,10 @@
-﻿Channel_No,Name,Favorite,LCN
-0,"SBS","JAPAN",5,1113
-1,"KBS","KOREAN",7,1111
-2,"MBC","KOREAN",11,1112
-3,"TvN","CHINA",21,1232
-4,"BBC","ENGLAND",100,2123
-5,"ZDF","GEMANY",101,1212
+﻿Channel_No,Name,Lang,Country,LCN,SID
+0,"SBS","jpn","JP",5,1113
+1,"KBS","kor","KR",7,1111
+2,"MBC","eng","KR",11,1112
+3,"TvN","zho","US",21,1232
+4,"BBC","eng","GB",100,2123
+5,"ZDF","deu","DE",101,1212
+6,"KTV","zho","CN",30,2134
+7,"RAI1","ita","IT",300,819
+8,"YLE","fin","FI",200,2346
