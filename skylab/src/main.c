@@ -41,8 +41,6 @@
 *
 *
 *---------------------------------------------------------------------------*/
-// 전역 변수에 현재 설정된 정렬 기준 추가
-int currentSortType = 0; // 기본값 0 (CH 기준)
 
 /******************************************************************************
 *
@@ -58,14 +56,14 @@ void printHelp(void)
 {
 	Print("\n======================= [ PROGRAM MENU ] =======================");
 	Print("\n  1. Add Channel        : Register a new channel");
-	Print("\n  2. Print All          : Display all registered channels");
-	Print("\n  3. Search (Num)       : Find a channel by its number (CH)");
-	Print("\n  4. Delete Channel     : Remove a channel from the list");
-	Print("\n  5. Save to File       : Save current data with sort options");
-	Print("\n  6. Load from File     : Load data and sort (CH or LCN)");
-	Print("\n  7. Update Name        : Modify an existing channel's name");
-	Print("\n  8. Sort by LCN        : Reorder the list by LCN number");
-	Print("\n  9. Search (Name)      : Search channels by name keyword");
+	Print("\n  2. Search (Num)       : Find a channel by its number (CH)");
+	Print("\n  3. Delete Channel     : Remove a channel from the list");
+	Print("\n  4. Save to File       : Save current data with sort options");
+	Print("\n  5. Load from File     : Load data");
+	Print("\n  6. Update Name        : Modify an existing channel's name");
+	Print("\n  7. Sort               : Reorder the list by sort (CH or LCN, Name)");
+	Print("\n  8. Search (Name)      : Search channels by name keyword");
+	Print("\n  9. Print All          : Display all registered channels");
 	Print("\n 10. CSV Export         : Export data to 'channels_backup.csv'");
 	Print("\n 11. CSV Import         : Import data from 'channels_backup.csv'");
 	Print("\n 12. Convert to JSON    : Convert data from 'channels_backup.json");
@@ -117,6 +115,7 @@ int main()
 	int ret = -1;
 	char input[32]; // 문자열 입력을 저장할 변수
     int choice;
+	CONFIG_LIST configList;
 
 	ret = LinkedList_Init();
 	if(ret < 0)
@@ -125,16 +124,16 @@ int main()
 	}
 
 	// 2. 자동 로드 기능 실행
-	currentSortType = LinkedList_LoadConfig(); // 마지막 저장된 설정 읽기
-	Print("System initialized. Last sort criteria: %s\n", currentSortType == 0 ? "CH" : "LCN");
-	LinkedList_LoadFromFile(CHANNEL_LIST_FILE, currentSortType);
+	configList = LinkedList_LoadConfig(); // 마지막 저장된 설정 읽기
+	Print("System initialized. Last sort criteria: %s\n", (configList.sort == 0) ? "CH" : "LCN");
+	LinkedList_LoadFromFile(CHANNEL_LIST_FILE);
 
 	// 프로그램 시작 시 도움말 한 번 출력
     printHelp();
 
     while (1)
 	{
-		Print("\n[Sort:%s] Select menu (type 'help' for menu): ", currentSortType == 0 ? "CH" : "LCN");
+		Print("\n[Sort:%s] Select menu (type 'help' for menu): ", (configList.sort == 0) ? "CH" : "LCN");
 		
 		// 1. 입력을 문자열로 받음
 		if (scanf("%s", input) != 1)
@@ -170,6 +169,7 @@ int main()
 				CHANNEL_LIST chList;
 				memset(&chList, 0x0, sizeof(CHANNEL_LIST));
 
+				// 2. Channel Name 입력
 				Print("\nEnter Channel Name: ");
 				safeGets((char *)chList.name, sizeof(chList.name));
 				if (strlen((char*)chList.name) == 0)
@@ -178,19 +178,23 @@ int main()
 					break;
 				}
 				
-				// 3. 즐겨찾기 입력
-				Print("Favorite : ");
-				safeGets((char *)chList.fav, sizeof(chList.fav));
-				
-				// 4. LCN 입력
-				Print("Logical Channel Number: ");
+				// 3. Language 입력
+				Print("Lanugage (Kor) : ");
+				safeGets((char *)chList.lang, sizeof(chList.lang));
+
+				// 4. Country 입력
+				Print("Country (KR): ");
+				safeGets((char *)chList.country, sizeof(chList.country));
+
+				// 5. LCN 입력
+				Print("LCN (Logical Channel Number): ");
 				if (scanf("%hu", &(chList.lcn)) != 1)
 				{
 					chList.lcn = 0;
 				}
 				clearInputBuffer();
 				
-				// 5. Service ID 입력 및 검증
+				// 6. Service ID 입력 및 검증
 				Print("Service ID (Cannot be 0): ");
 				if (scanf("%hu", &(chList.sid)) != 1)
 				{
@@ -203,17 +207,18 @@ int main()
 				LinkedList_AddChannel(chList);
             }
 			break;
-            case 2: LinkedList_PrintAllChannels(); break;
-            case 3:
+
+            case 2:
 			{
 				unsigned short searchCh;
 				Print("\nEnter Channel Number to search:");
 				scanf("%hu", &searchCh);
 
 				LinkedList_SearchChannel(searchCh);
-				break;
             }
-            case 4:
+			break;
+
+            case 3:
 			{
 				unsigned short deleteCh;
 				Print("\nEnter Channel Number to delete: ");
@@ -227,27 +232,20 @@ int main()
 				LinkedList_DeleteChannel(deleteCh);
             }
 			break;
+
+			case 4:
+			{
+				LinkedList_SaveToFile(CHANNEL_LIST_FILE);
+			}
+			break;
+
 			case 5:
 			{
-				int sType;
-				Print("Select Sort Type (0:CH, 1:LCN):");
-				scanf("%d", &sType);
-				if(LinkedList_SaveToFile(CHANNEL_LIST_FILE, sType) == 0)
-				{
-					LinkedList_SaveConfig(sType); // 정렬 기준 저장
-					currentSortType = sType;
-				}
-				break;
+				LinkedList_LoadFromFile(CHANNEL_LIST_FILE);
 			}
+			break;
+
 			case 6:
-			{
-				int sType;
-				Print("Select sort criteria for loading (0:BY CH, 1:BY LCN):");
-				scanf("%d", &sType);
-				LinkedList_LoadFromFile(CHANNEL_LIST_FILE, sType);
-				break;
-			}
-			case 7:
 			{
 				unsigned short targetCh;
 				Print("\nEnter Channel Number to update name:");
@@ -263,11 +261,26 @@ int main()
 				//safeGets(searchName, sizeof(searchName) - 1); // NULL 제외 크기
 				safeGets((char *)searchName, sizeof(searchName)); // unsigned char* 를 char* 로 캐스팅
 
-				LinkedList_UpdateChannelName(targetCh, searchName);
+				LinkedList_UpdateChNameByChannel(targetCh, searchName);
 			}
 			break;
-            case 8: LinkedList_SortByLCN(); break; // LCN 정렬 기능 호출
-			case 9:
+
+			case 7:
+			{
+				unsigned short sortType;
+				Print("\nEnter Channel Sort: ");
+				if (scanf("%hu", &sortType) != 1)
+				{
+					clearInputBuffer();
+					break;
+				}
+				clearInputBuffer();
+
+				LinkedList_Sort(sortType);
+			}
+			break;
+			
+			case 8:
 			{
 				char searchName[32];
 				Print("\nEnter channel name (keyword) to search:");
@@ -282,6 +295,8 @@ int main()
 				LinkedList_SearchChannelByName(searchName);
 			}
 			break;
+
+            case 9: LinkedList_PrintAllChannels(); break;
 			case 10: LinkedList_ExportToCSV(CHANNEL_LIST_CSV_FILE); break;
 			case 11: LinkedList_ImportFromCSV(CHANNEL_LIST_CSV_FILE); break;
 			case 12: LinkedList_CsvToJson(CHANNEL_LIST_CSV_FILE, CHANNEL_LIST_JSON_FILE); break;

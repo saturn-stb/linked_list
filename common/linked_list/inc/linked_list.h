@@ -30,7 +30,7 @@
 	
 #define SID_MASK		       0x1FFF
 
-#define CHANNEL_LIST_ITEM      5
+#define CHANNEL_LIST_ITEM      6 // CHANNEL_LIST' item number
 
 #define CHANNEL_LIST_CONFIG_FILE "config.dat"
 #define CHANNEL_LIST_FILE        "channels.dat"
@@ -42,6 +42,17 @@
 *
 *
 *---------------------------------------------------------------------------*/
+typedef enum
+{
+	SORT_CH,
+	SORT_LCN,
+	SORT_NAME,
+	SORT_SID,
+	
+	MAX_SORT
+	
+}TYPE_SORT;
+
 // Force 1-byte alignment for binary consistency
 #pragma pack(push, 1)
 
@@ -49,16 +60,26 @@ typedef struct
 {
 	unsigned short ch;        // Channel Number (index)
     unsigned char name[32];   // Channel Name
-    unsigned char fav[16];    // Favorite Status
-    unsigned short lcn;       // Logical Channel Number
+    unsigned char lang[4];    // Language Code (ISO639, kor, eng. usa, etc...)
+    unsigned char country[4]; // Country code (ISO639, kr, en, ger, deu, fra, ita, etc...)
+    unsigned char reserved[8];
+	unsigned short lcn;       // Logical Channel Number
 	unsigned short sid;       // Service ID
+
 } CHANNEL_LIST;
 
 typedef struct Node
 {
-    CHANNEL_LIST data;  // 채널 데이터
-    struct Node* next;  // 다음 노드 주소
+    CHANNEL_LIST data;  // Channel Data
+    struct Node* next;  // Next Node pointer
+
 } Node;
+
+typedef struct
+{
+    unsigned char sort; // Channel Sort
+
+} CONFIG_LIST;
 
 #pragma pack(pop)
 
@@ -90,15 +111,19 @@ extern void LinkedList_CsvToJson(const char* csvFilename, const char* jsonFilena
 extern void LinkedList_ImportFromCSV(const char* filename);
 extern void LinkedList_ExportToCSV(const char* filename);
 extern void LinkedList_SearchChannelByName(char *name);
-extern void LinkedList_SortByLCN(void);
-extern void LinkedList_UpdateChannelName(unsigned short ch, char *name);
+extern void LinkedList_SearchChannelByLcn(unsigned short lcn);
+extern void LinkedList_SearchChannelByChannel(unsigned short ch);
+extern void LinkedList_Sort(unsigned char sortType);
+extern void LinkedList_UpdateChNameByChannel(unsigned short ch, char *name);
+extern void LinkedList_UpdateChNameByLcn(unsigned short lcn, char *name);
 extern void LinkedList_DeleteChannel(unsigned short ch);
+extern void LinkedList_DeleteChannelByLcn(unsigned short lcn);
 extern void LinkedList_SearchChannel(unsigned short ch);
 extern void LinkedList_AddChannel(CHANNEL_LIST list);
-extern void LinkedList_LoadFromFile(const char* filename, int sortType);
-extern int LinkedList_SaveToFile(const char* filename, int sortType);
-extern void LinkedList_SaveConfig(int sortType);
-extern int LinkedList_LoadConfig(void);
+extern void LinkedList_LoadFromFile(const char* filename);
+extern void LinkedList_SaveToFile(const char* filename);
+extern void LinkedList_SaveConfig(CONFIG_LIST config);
+extern CONFIG_LIST LinkedList_LoadConfig(void);
 extern int LinkedList_Free(void);
 extern int LinkedList_Init(void);
 
