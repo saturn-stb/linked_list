@@ -18,6 +18,8 @@
 #include <ctype.h>
 
 #include "util.h"
+#include "iso639.h"
+#include "iso3166.h"
 #include "linked_list.h"
 
 /******************************************************************************
@@ -106,22 +108,23 @@ void LinkedList_PrintAllChannels(void)
 		return;
 	}
 
-	// 헤더와 데이터 개수를 6개로 맞춤 (CH, NAME, LANG, COUNTRY, LCN, SID)
-	Print("\n%-8s %-20s %-8s %-8s %-8s %-8s\n", "CH", "NAME", "LANG", "CTRY", "LCN", "SID");
+	// 헤더와 데이터 개수를 6개로 맞춤 (CH, NAME, LANG, CODE, COUNTRY, CODE, LCN, SID)
+	Print("\n%-8s %-20s %-4s %-4s %-4s %-4s %-8s %-8s\n", "CH", "NAME", "LANG", "CODE", "CTRY", "CODE", "LCN", "SID");
 	Print("----------------------------------------------------------------------\n");
 
 	Node* curr = head;
 	while (curr != NULL)
 	{
 		// 6개 필드 모두 출력
-		Print("%-8u %-20s %-8s %-8s %-8u %-8u\n", 
+		Print("%-8u %-20s %-4s %-4u %-4s %-4u %-8u %-8u\n", 
 				curr->data.ch, 
 				curr->data.name, 
-				curr->data.lang,	  // ISO 639
-				curr->data.country, // ISO 3166
+				curr->data.lang, ISO639_Alph3ToLang((const char *)curr->data.lang), // ISO 639
+				curr->data.country, ISO3166_GetCountryCodeByAlpha2((const char *)curr->data.country),// ISO 3166
 				curr->data.lcn, 
 				curr->data.sid);
-				curr = curr->next;
+		
+		curr = curr->next;
 	}
 }
 
