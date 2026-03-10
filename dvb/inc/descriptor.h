@@ -89,6 +89,59 @@ typedef int 						DTV_ECODE;
 extern "C" {
 #endif /* __cplusplus */
 
+extern unsigned char
+get_8bit(
+	unsigned char *p
+	);
+extern unsigned short
+get_10bit(
+	unsigned char *p
+	);
+extern unsigned short
+get_12bit(
+	unsigned char *p
+	);
+extern unsigned short
+get_13bit(
+	unsigned char *p
+	);
+extern unsigned short
+get_14bit(
+	unsigned char *p
+	);
+extern unsigned short
+get_15bit(
+	unsigned char *p
+	);
+extern unsigned short
+get_16bit(
+	unsigned char *p
+	);
+extern unsigned int
+get_20bit(
+	unsigned char *p
+	);
+extern unsigned int
+get_22bit(
+	unsigned char *p
+	);
+extern unsigned int
+get_24bit(
+	unsigned char *p
+	);
+extern unsigned int
+get_28bit(
+	unsigned char *p
+	);
+extern unsigned int
+get_29bit(
+	unsigned char *p
+	);
+extern unsigned int
+get_32bit(
+	unsigned char *p
+	);
+
 extern private_data_t *
 dvb_alloc_private_data(
 	int len

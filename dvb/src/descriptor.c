@@ -9208,6 +9208,10 @@ dvb_parse_canal_audio_name_desc(
 	}
 
 	name_length = *p;
+	if (name_length == 0)
+	{
+		return DTV_ERROR;
+	}
 	p += 1; desc_length -= 1;
 
 #if 1
