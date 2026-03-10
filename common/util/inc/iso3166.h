@@ -12,8 +12,8 @@
 * 이 소프트웨어는 공유의 가치를 위해 조건 없이 제공됩니다.
 *
 *****************************************************************************/
-#ifndef iso3166
-#define iso3166
+#ifndef ISO3166_H
+#define ISO3166_H
 
 /******************************************************************************
 *
@@ -188,4 +188,4 @@ extern int IsValidCountryCode(const char* alpha2);
 extern const char* ISO3166_GetNameByAlpha2(const char* alpha2);
 extern CountryCode ISO3166_GetCountryCodeByAlpha2(const char* alpha2);
 
-#endif /* iso3166 */
+#endif /* ISO3166_H */

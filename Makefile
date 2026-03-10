@@ -13,11 +13,11 @@ LDFLAGS +=
 LDLIBS  +=
 
 # 빌드할 하위 모듈 목록
-SUBDIRS = skylab
+SUBDIRS = dvb skylab
 # 실행 파일이 모일 출력 폴더
 export OUTPUT_DIR = $(CURDIR)/output
 
-# 개별 clean 타겟 목록 생성 (skylab-clean, parent-clean 등)
+# 개별 clean 타겟 목록 생성 (skylab-clean, dvb-clean 등)
 CLEAN_TARGETS = $(addsuffix -clean, $(SUBDIRS))
 
 all: create_output
@@ -27,7 +27,7 @@ all: create_output
 	@echo "[Success] All binaries are located in: $(OUTPUT_DIR)"
 
 # 각 프로세스별 개별 빌드 규칙
-# 이 설정 덕분에 'make skylab' 또는 'make parent' 명령이 가능해집니다.
+# 이 설정 덕분에 'make skylab' 또는 'make dvb' 명령이 가능해집니다.
 $(SUBDIRS):
 	@echo "\n>>> Entering directory: [ $@ ]"
 	@$(MAKE) -C $@
