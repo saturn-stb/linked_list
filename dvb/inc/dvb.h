@@ -25,6 +25,10 @@
  *
  *
  *---------------------------------------------------------------------------*/
+// MPEG-TS(Transport Stream) 의 TS 패킷의 전체 길이
+#define DTV_TS_PACKET_LEN 				188
+	
+
 #define DTV_INVALID_PID					0x1FFF
 #define DTV_INVALID_NETWORK_ID			0xFFFF
 #define DTV_INVALID_ORG_NETWORK_ID		0xFFFF
@@ -4960,6 +4964,8 @@ typedef struct ait_simple_application_boundary_desc_s {
 *
 *
 *---------------------------------------------------------------------------*/
+extern int detect_packet_len(unsigned char *p);
+extern void init_crc32_table(void);
 extern unsigned int get_mpeg_crc32(unsigned char *data, int len);
 
 #endif /* DVB_H */

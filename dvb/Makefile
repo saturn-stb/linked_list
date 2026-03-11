@@ -56,7 +56,7 @@ INC_DIRS += ../common/util/inc
 INC_DIRS += $(shell find . -type d)
 INC_FLAGS := $(addprefix -I, $(INC_DIRS))
 
-FINAL_TARGET = $(if $(OUTPUT_DIR), $(OUTPUT_DIR)/$(TARGET), ../$(TARGET))
+FINAL_TARGET = $(if $(OUTPUT_DIR)/lib, $(OUTPUT_DIR)/lib/$(TARGET), ../$(TARGET))
 
 all: $(FINAL_TARGET)
 
@@ -65,6 +65,9 @@ $(FINAL_TARGET): $(OBJS)
 	@mkdir -p $(dir $@)
 	$(AR_CMD)
 	@echo "[Done] $(if $(filter 1,$(LIBRARY_STATIC)),Static,Shared) Library $(TARGET) build complete."
+	@mkdir -p $(OUTPUT_DIR)/include
+	@cp inc/*.h $(OUTPUT_DIR)/include/
+	@echo "[Done] Installation to output/ complete."
 
 $(OBJ_DIR)/%.o: %.c
 	@echo "========================================"

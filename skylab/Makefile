@@ -8,8 +8,10 @@ ifneq ($(findstring arm,$(CC)),)
 CFLAGS += -march=armv7-a -mfpu=neon  # ARM 전용 최적화 옵션 예시
 endif
 
-LDFLAGS +=
-LDLIBS  += -lrt
+CFLAGS += -I$(OUTPUT_DIR)/include
+
+LDFLAGS += -L$(OUTPUT_DIR)/lib
+LDLIBS  += -lrt -ldvb
 
 CUR_DIR := $(CURDIR)
 
@@ -50,7 +52,7 @@ all: $(FINAL_TARGET)
 
 $(FINAL_TARGET): $(OBJS)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS) $(OBJS) $(LDLIBS) -o $@
+	$(CC) $(CFLAGS) $(LDFLAGS) $(OBJS) $(LDLIBS) -o $@
 	@echo "[Done] $(TARGET) build complete."
 
 $(OBJ_DIR)/%.o: %.c

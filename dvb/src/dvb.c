@@ -40,6 +40,7 @@
 *
 *---------------------------------------------------------------------------*/
 static unsigned int crc32_table[256];
+static unsigned int crc32_table_init = 0;
 
 /******************************************************************************
 *
@@ -51,12 +52,35 @@ static unsigned int crc32_table[256];
 *
 *
 *---------------------------------------------------------------------------*/
+int detect_packet_len(unsigned char *p)
+{
+    // 0x47(Sync Byte)이 파일 내부에 연속적으로 존재하는 위치를 찾음
+    // 188바이트마다 있는지, 아니면 192바이트마다 있는지 확인
+    if (p[0] == 0x47 && p[188] == 0x47) return 188;
+    if (p[0] == 0x47 && p[192] == 0x47) return 192;
+    
+    // 만약 188/192에서 모두 발견되지 않는다면, 오프셋이 있을 수 있음
+    // 루프를 돌며 첫 번째, 두 번째 0x47 위치의 차이(diff)를 구함
+    for (int i = 1; i < 204; i++)
+	{
+        if (p[0] == 0x47 && p[i] == 0x47) return i;
+    }
+    return 188; // 기본값
+}
+
+/*-----------------------------------------------------------------------------
+*
+*
+*
+*---------------------------------------------------------------------------*/
 void init_crc32_table(void)
 {
 	unsigned int i, j;
 	unsigned int crc;
 	const unsigned int polynomial = 0x04C11DB7; // DVB 표준 다항식
 
+	if(crc32_table_init == 1) return;
+	
 	for (i = 0; i < 256; i++)
 	{
 		crc = (i << 24);
@@ -73,6 +97,8 @@ void init_crc32_table(void)
 		}
 		crc32_table[i] = crc;
 	}
+
+	crc32_table_init = 1;
 }
 
 /*-----------------------------------------------------------------------------
@@ -83,6 +109,8 @@ void init_crc32_table(void)
 unsigned int get_mpeg_crc32(unsigned char *data, int len)
 {
     unsigned int crc = 0xFFFFFFFF; // 초기값
+
+	init_crc32_table();
 
     for (int i = 0; i < len; i++)
 	{

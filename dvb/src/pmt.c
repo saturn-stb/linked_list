@@ -148,7 +148,7 @@ static pmt_section_t *pmt_parse_section(unsigned char * p)
 	total_len = (signed short)(section_length + 3);
 	// CRC32 verify
 	get_crc = get_32bit(p + (total_len - 1 - 4));
-	mpeg_crc = get_mpeg_crc32(p - 1, total_len - 1);
+	mpeg_crc = get_mpeg_crc32(p - 1, total_len - 4);
 	if (mpeg_crc != get_crc)
 	{
 		DTV_FREE(sec);
