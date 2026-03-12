@@ -59,7 +59,7 @@
 int IsValidCountryCode(const char* alpha2)
 {
 	int i = 0;
-	for (i = 0; i < ISO3166_DB_SIZE; i++)
+	for (i = 0; i < (int)ISO3166_DB_SIZE; i++)
 	{
 		if (strcmp(iso3166_db[i].alpha2, alpha2) == 0)
 		{
@@ -77,7 +77,7 @@ int IsValidCountryCode(const char* alpha2)
 const char* ISO3166_GetNameByAlpha2(const char* alpha2)
 {
 	int i = 0;
-	for (i = 0; i < ISO3166_DB_SIZE; i++)
+	for (i = 0; i < (int)ISO3166_DB_SIZE; i++)
 	{
 		if (strcmp(iso3166_db[i].alpha2, alpha2) == 0)
 		{
@@ -95,7 +95,7 @@ const char* ISO3166_GetNameByAlpha2(const char* alpha2)
 CountryCode ISO3166_GetCountryCodeByAlpha2(const char* alpha2)
 {
 	int i = 0;
-	for (i = 0; i < ISO3166_DB_SIZE; i++)
+	for (i = 0; i < (int)ISO3166_DB_SIZE; i++)
 	{
 		if (strcmp(iso3166_db[i].alpha2, alpha2) == 0)
 		{
