@@ -40,7 +40,7 @@ typedef struct stream_info_s
 } stream_info_t;
 
 /* 각 서비스(프로그램)의 스캔 상태를 담는 구조체 */
-typedef struct 
+typedef struct scan_service_s
 {
     unsigned short program_number; // PAT에서 얻은 Service ID
     unsigned short pmt_pid;        // PAT에서 얻은 PMT PID
@@ -50,6 +50,8 @@ typedef struct
     char           service_name[32]; // 채널명 (SDT 파싱 후 업데이트)
 
     stream_info_t *streams;        // 비디오/오디오 리스트 시작 포인터
+    
+	struct scan_service_s *next;    // 다음 스트림으로 연결
 } scan_service_t;
 
 /* 전체 스캔 세션을 관리하는 메인 구조체 */

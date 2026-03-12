@@ -106,18 +106,47 @@ unsigned short pat_parse(unsigned char *p, dvb_scan_result_t *scan)
 						{
 							if(idx < MAX_PAT_PROGRAMS)
 							{
-								// program_number가 0x0000 (NIT)
-								if(prog_data->program_number == 0x0000)
+								// 1. 새로운 노드 할당 및 초기화
+								scan_service_t *services = (scan_service_t *)malloc(sizeof(scan_service_t));
+								if(services != NULL)
 								{
-									scan->services[idx].program_number = prog_data->program_number;
-									scan->network_id = prog_data->pmt_pid;
+									memset(services, 0x0, sizeof(scan_service_t));
+									services->streams = NULL; // [중요] 스트림 리스트 시작 포인터 초기화
+									services->next = NULL; // 새로운 노드는 항상 마지막이므로 next를 NULL로 설정
+								
+									// 2. 리스트 연결 (Queue 방식: 순서 유지)
+									if (scan->services == NULL)
+									{
+										// 리스트가 비어있다면 바로 첫 번째 노드로 설정
+										scan->services = services;
+									}
+									else
+									{
+										// 마지막 노드까지 이동
+										// [수정] tail의 타입을 명확히 scan_service_t *로 선언
+										scan_service_t *tail = scan->services;
+										while (tail->next != NULL)
+										{
+											tail = tail->next;
+										}
+
+										tail->next = services; // 여기서 경고가 뜬다면 next 멤버 정의를 다시 확인하세요.
+									}
+
+									// program_number가 0x0000 (NIT)
+									if(prog_data->program_number == 0x0000)
+									{
+										services->program_number = prog_data->program_number;
+										scan->network_id = prog_data->pmt_pid;
+									}
+									else
+									{
+										services->program_number = prog_data->program_number;
+										services->pmt_pid = prog_data->pmt_pid;
+									}
+
+									idx++;
 								}
-								else
-								{
-									scan->services[idx].program_number = prog_data->program_number;
-									scan->services[idx].pmt_pid = prog_data->pmt_pid;
-								}
-								idx++;
 							}
 
 							prog_data = prog_data->next;
@@ -208,35 +237,45 @@ unsigned short pmt_parse(unsigned char *p, scan_service_t *services)
 	idx = 0;
     while (desc != NULL)
     {
-		Print(" 	-> Has Descriptors\n");
+		//Print(" 	-> Has Descriptors\n");
         desc = desc->next;
 		count++;
     }
 
     // 3. Elementary Stream(ES) 데이터 순회
     pmt_es_data_t *es = pmt->es_data;
+	stream_info_t *last_stream = NULL; // 리스트 끝을 유지할 포인터
 	count = 0;
 	idx = 0;
     while (es != NULL)
     {
 		// 1. 새로운 노드 할당 및 초기화
 		stream_info_t *new_stream = (stream_info_t *)malloc(sizeof(stream_info_t));
-		memset(new_stream, 0x0, sizeof(stream_info_t));
 		if(new_stream != NULL)
 		{
+			memset(new_stream, 0x0, sizeof(stream_info_t));
+
 			new_stream->stream_type = es->stream_type;
 			new_stream->elementary_pid = es->elem_pid;
 
-			// 2. 리스트 연결 (Stack 방식: 현재 순서가 뒤집힘)
-			new_stream->next = services->streams; // 헤더에 추가 (Stack 방식)
-			services->streams = new_stream;
+			// Queue 방식 최적화 (tail을 매번 찾지 않음)	
+			if (services->streams == NULL)
+			{
+				services->streams = new_stream;
+			}
+			else
+			{
+				last_stream->next = new_stream;
+			}
+
+			last_stream = new_stream; // 다음 노드를 위해 업데이트
 			idx++;
 		}
-
+		
         // 디스크립터가 있다면 추가 출력 가능
         if (es->desc != NULL)
 		{
-            Print("     -> Has Descriptors in es\n");
+            //Print("     -> Has Descriptors in es\n");
         }
         
         es = es->next;
@@ -270,17 +309,6 @@ void scan_channel(unsigned long dscr)
 
 	memset(scan, 0x0, sizeof(dvb_scan_result_t));
 
-	// [중요] 임시로 최대치(253)만큼 할당하거나,	 // 개수를 먼저 파악한 후 할당해야 합니다.
-	scan->services = (scan_service_t *)malloc(sizeof(scan_service_t) * MAX_PAT_PROGRAMS);
-	if(scan->services == NULL)
-	{
-		Print("Memory allocation failed\n");
-		free(scan);
-		return;
-	}
-
-	memset(scan->services, 0x0, sizeof(scan_service_t) * MAX_PAT_PROGRAMS);
-
 	// PAT 파싱 함수 호출
 	ch_count = pat_parse(p, scan);
 	if((ch_count > 0) && (ch_count != 0xFFFF))
@@ -308,70 +336,78 @@ void scan_channel(unsigned long dscr)
 			Print("------------------------------------------\n");
 
 			// PMT 파싱 함수 호출
-			idx = 0;
-			do {
-				// 1. PID 검색 (함수가 패킷 시작 주소인 0x47 위치를 반환함)
-				unsigned char *pmt_packet = find_packet_by_pid(p, scan->services[idx].pmt_pid);
+			// PMT 파싱 및 출력 루프
+			Print("\n%-8s | %-12s | %-10s\n", "Index", "Program ID", "PCR PID");
+			Print("------------------------------------------\n");
+			
+			scan_service_t *curr = scan->services;
+			int idx = 0;
+			while (curr != NULL)
+			{
+				// 1. PID 검색 (PAT에서 얻은 PMT PID 사용)
+				unsigned char *pmt_packet = find_packet_by_pid(p, curr->pmt_pid);
 				
-				if (pmt_packet != NULL)
+				if (pmt_packet != NULL && curr->program_number != 0x0000)
 				{
-					// 2. [중요] Pointer Field 확인
-					// TS 패킷 헤더(4바이트) + pointer_field(1바이트)를 건너뜀
 					unsigned char pointer_field = pmt_packet[4]; 
 					unsigned char *section_data = &pmt_packet[4 + 1 + pointer_field];
-					
-					scan_service_t *services = &scan->services[idx];
-
-					if (scan->services[idx].program_number != 0x0000)
+			
+					// 2. PMT 파싱 수행
+					result = pmt_parse(section_data, curr);
+					if(result != 0xFFFF)
 					{
-						result = pmt_parse(section_data, services);
-						if(result != 0xFFFF)
+						// 표 형식 출력
+						Print("%-8d | 0x%04X	   | 0x%04X\n", 
+							  idx, curr->program_number, curr->pcr_pid);
+						
+						// 스트림 정보가 있다면 상세 출력
+						if (curr->streams != NULL)
 						{
-							Print("==============================\n");
-							Print("SCAN Channel (PMT)\n");
-							Print(" ch idx     : %d\n", idx);
-							Print(" %-15s : 0x%04X\n", "Program ID", services->program_number); 
-							Print(" %-15s : 0x%04X\n", "PCR PID",	services->pcr_pid);
-
-							// 스트림 개수와 정보가 있다면 추가 출력	
-							if (services->streams != NULL)
+							stream_info_t *es = curr->streams;
+							int es_idx = 0;
+							while (es != NULL)
 							{
-								Print(" %-15s : streams found\n", "ES Info");
+								// 스트림 타입에 따른 이름 표시 (디버깅 편의성) 
+								const char *type_name = "Unknown";
+								if (es->stream_type == ES_H264_VIDEO) type_name = "H.264 Video";
+								else if (es->stream_type == ES_PRIVATE_PES) type_name = "Audio/Data";
+								else if (es->stream_type == ES_MPEG1_AUDIO) type_name = "MPEG Audio";
 								
-								stream_info_t *es = services->streams;
-								int es_idx = 0;
-								while (es != NULL)
-								{
-									Print("   -> ES[%d] Type: 0x%02X, PID: 0x%04X\n", 
-										  es_idx++, es->stream_type, es->elementary_pid);
-									es = es->next;
-								}
+								Print(" [ES %d] Type: 0x%02X (%-12s), PID: 0x%04X\n", es_idx, es->stream_type, type_name, es->elementary_pid);
+								es_idx++;
+								es = es->next;
 							}
-							Print("------------------------------------------\n\n");
 						}
 					}
 				}
+				curr = curr->next; // 다음 채널로 이동
 				idx++;
-			} while (idx < scan->total_services);
+			}
+			Print("------------------------------------------\n");
 		}
 	}
 
-	idx = 0;
-	for (idx = 0; idx < scan->total_services; idx++) 
+	// 수정된 해제 로직
+	scan_service_t *curr_services = scan->services;
+	while(curr_services != NULL)
 	{
-		stream_info_t *curr = scan->services[idx].streams;
-		while (curr != NULL)
+		scan_service_t *next_services = curr_services->next;
+		
+		// 1. 해당 채널의 스트림 리스트 먼저 해제
+		stream_info_t *curr_stream_info = curr_services->streams;
+		while(curr_stream_info != NULL)
 		{
-			stream_info_t *next = curr->next;
-			free(curr); // desc가 있다면 여기서 먼저 free(curr->desc) 필요
-			curr = next;
+			stream_info_t *next_stream_info = curr_stream_info->next;
+			
+			free(curr_stream_info);
+			curr_stream_info = next_stream_info; // [수정] 올바른 다음 스트림으로 이동
 		}
-		scan->services[idx].streams = NULL;
+		
+		// 2. 서비스 노드 해제
+		free(curr_services);
+		curr_services = next_services;
 	}
 
-	free(scan->services);
-	scan->services = NULL;
-	
 	free(scan);
 	scan = NULL;
 }
