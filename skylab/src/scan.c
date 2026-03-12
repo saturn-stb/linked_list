@@ -20,6 +20,7 @@
 
 #include "pat.h"
 #include "pmt.h"
+#include "sdt.h"
 
 #include "scan.h"
 
