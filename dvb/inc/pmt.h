@@ -15,6 +15,9 @@
 #ifndef	PMT_H
 #define	PMT_H
 
+#include "dvb.h"
+#include "descriptor.h"
+
 /******************************************************************************
 *
 *
@@ -52,7 +55,7 @@
 *
 *
 *---------------------------------------------------------------------------*/
-extern unsigned short pmt_parse(unsigned long dscr);
-
+extern void pmt_free_section(pmt_section_t * section);
+extern pmt_section_t *pmt_parse_section(unsigned char * p);
 
 #endif	// PMT_H

@@ -18,7 +18,7 @@
 
 #include "util.h"
 
-#include "pat.h"
+#include "scan.h"
 
 #include "linked_list.h"
 
@@ -107,55 +107,6 @@ void safeGets(char* str, int size)
 			clearInputBuffer(); // 버퍼에 남은 잔여 데이터 청소
 		}
 	}
-}
-
-void dvb_pat_pare(char *fileName) 
-{
-	FILE *fp = NULL;
-	unsigned char *buffer = NULL;
-	long fileSize = 0;
-
-	// 1. TS 파일 열기
-	fp = fopen(fileName, "rb"); // 읽기 전용 바이너리 모드
-	if (!fp)
-	{
-		Print("Failed to open %s\n", fileName);
-		return;
-	}
-
-	// 2. 파일 크기 계산
-	fseek(fp, 0, SEEK_END);
-	fileSize = ftell(fp);
-	rewind(fp);
-
-	// 3. 파일 크기만큼 메모리 할당
-	buffer = (unsigned char *)malloc(fileSize);
-	if (!buffer)
-	{
-		Print("Memory allocation failed\n");
-		fclose(fp);
-		return;
-	}
-
-	// 4. 파일 데이터 읽기
-	if (fread(buffer, 1, fileSize, fp) != (size_t)fileSize)
-	{
-		Print("Failed to read file\n");
-		free(buffer);
-		fclose(fp);
-		return;
-	}
-	fclose(fp);
-
-	// 5. 메모리 주소를 unsigned long으로 변환하여 전달
-	unsigned long dscr = (unsigned long)buffer;
-	Print("TS File loaded at address: 0x%lX, Size: %ld bytes\n", dscr, fileSize);
-	
-	// PAT 파싱 함수 호출
-	pat_parse(dscr);
-
-	// 6. 사용 후 메모리 해제
-	free(buffer);
 }
 
 /*-----------------------------------------------------------------------------
@@ -367,7 +318,7 @@ int main()
 				}
 				clearInputBuffer();
 
-				dvb_pat_pare(fileName);
+				open_channel_file((char *)"astra192E-ts1080-2018-05-11.ts");
 			}
 			break;
 			

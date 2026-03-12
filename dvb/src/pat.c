@@ -17,9 +17,6 @@
 
 #include "util.h"
 
-#include "dvb.h"
-#include "descriptor.h"
-
 #include "pat.h"
 
 
@@ -56,7 +53,7 @@
 *
 *
 *---------------------------------------------------------------------------*/
-static void pat_free_section(pat_section_t * section)
+void pat_free_section(pat_section_t * section)
 {
 	pat_program_data_t * prog, * next;
 	
@@ -80,7 +77,7 @@ static void pat_free_section(pat_section_t * section)
 *
 *
 *---------------------------------------------------------------------------*/
-static pat_section_t *pat_parse_section(unsigned char * p)
+pat_section_t *pat_parse_section(unsigned char * p)
 {
 	pat_section_t * sec;
 	signed short section_length;
@@ -183,81 +180,5 @@ static pat_section_t *pat_parse_section(unsigned char * p)
 	}
 
 	return sec;
-}
-
-/*-----------------------------------------------------------------------------
-* PAT(Program Association Table
-* dscr 파일 데이터가 로드된 메모리 시작 주소
-*
-*---------------------------------------------------------------------------*/
-unsigned short pat_parse(unsigned long dscr)
-{
-    unsigned char *p = NULL;
-    pat_section_t *pat = NULL;
-    int i = 0, pktLen = 0;
-
-	p = (unsigned char *)dscr;
-	if(p == NULL) 
-	{
-		Print("[PAT ERROR] Received section data is NULL\n");
-		return 0xffff;
-	}
-
-	pktLen = detect_packet_len(p);
-
-    // MPEG-TS 패킷 크기는 일반적으로 188바이트
-    // 0x47(Sync Byte)을 찾고 PID가 0x0000인 패킷을 찾아야 함
-    while (i < 1000000) // 파일 전체를 검색 (범위 제한 필요)
-    {
-        // Sync Byte 확인
-        if (p[i] == 0x47) 
-        {
-            // PID 추출 (13비트)
-            unsigned short pid = ((p[i+1] & 0x1F) << 8) | p[i+2];
-            
-            if (pid == 0x0000) // PAT PID 발견
-            {
-                // Payload Unit Start Indicator (PUSI) 확인
-                unsigned char pusi = (p[i+1] & 0x40) >> 6;
-                if (pusi)
-                {
-                    // Pointer field를 건너뛰고 실제 데이터 시작점 계산
-                    unsigned char pointer_field = p[i+4];
-                    unsigned char *section_data = &p[i+4+1+pointer_field];
-                    
-                    // PAT 파싱 수행
-                    pat = pat_parse_section(section_data);
-                    
-                    if (pat != NULL)
-					{
-						pat_program_data_t *prog_data = pat->prog_data;
-						unsigned char count = 0;
-						
-						Print("==============================\n");
-                        Print("PAT Parsing\n");
-                        Print(" TS_ID  : 0x%04x\n", pat->ts_id);
-                        Print(" VER    : 0x%02x\n", pat->version);
-                        Print(" SEC    : %d / %d\n", pat->section, pat->last_section);
-
-						Print("------------------------------\n");
-						while(prog_data != NULL)
-						{
-							Print(" index %d\n", count);
-							Print("   program id : 0x%04x\n", prog_data->program_number);
-							Print("   pmt pid    : 0x%04x\n", prog_data->pmt_pid);
-							
-							prog_data = prog_data->next;
-							count++;
-						}
-						
-                        pat_free_section(pat);
-                    }
-                }
-            }
-        }
-        i += pktLen; // 188, 다음 패킷으로 이동
-    }
-
-	return 0;
 }
 

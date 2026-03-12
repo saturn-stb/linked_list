@@ -12,11 +12,10 @@
 * 이 소프트웨어는 공유의 가치를 위해 조건 없이 제공됩니다.
 *
 *****************************************************************************/
+#include <stdio.h>
+#include <stdlib.h>
 
 #include "util.h"
-
-#include "dvb.h"
-#include "descriptor.h"
 
 #include "pmt.h"
 
@@ -54,7 +53,7 @@
 *
 *
 *---------------------------------------------------------------------------*/
-static void pmt_free_section(pmt_section_t * section)
+void pmt_free_section(pmt_section_t * section)
 {
 	pmt_es_data_t * es;
 	pmt_es_data_t * next_es;
@@ -98,7 +97,7 @@ static void pmt_free_section(pmt_section_t * section)
 *
 *
 *---------------------------------------------------------------------------*/
-static pmt_section_t *pmt_parse_section(unsigned char * p)
+pmt_section_t *pmt_parse_section(unsigned char * p)
 {
 	pmt_section_t * sec;
 	DTV_ECODE err;
@@ -285,37 +284,5 @@ static pmt_section_t *pmt_parse_section(unsigned char * p)
 	}
 	
 	return sec;
-}
-
-/*-----------------------------------------------------------------------------
-*
-*
-*
-*---------------------------------------------------------------------------*/
-unsigned short pmt_parse(unsigned long dscr)
-{
-	unsigned char *p = NULL;
-	pmt_section_t *pmt = NULL;
-
-	p = (unsigned char*)*(unsigned long*)dscr;
-	if(p == NULL) 
-	{
-		Print("[PMT ERROR] Received section data is NULL\n");
-		return 0xffff;
-	}
-
-	/********************************************************************************************
-	Parse PMT Section
-	********************************************************************************************/
-	pmt = pmt_parse_section(p);
-	if(pmt == NULL)
-	{
-		Print("[PMT ERROR] Failed to parse PMT section data\n");
-		return 0xffff;
-	}
-
-	pmt_free_section(pmt);
-
-	return 0x0;
 }
 
