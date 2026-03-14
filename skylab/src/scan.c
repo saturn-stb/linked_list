@@ -22,6 +22,7 @@
 #include "pmt.h"
 #include "sdt.h"
 #include "tdt.h"
+#include "tot.h"
 
 #include "scan.h"
 
@@ -35,6 +36,7 @@
 *
 *
 *---------------------------------------------------------------------------*/
+#define MAX_SECTION_BUF_SIZE  					4096
 
 /*-----------------------------------------------------------------------------
 *
@@ -54,6 +56,34 @@ static dvb_scan_t dvb_scan;
 *
 *
 *****************************************************************************/
+/*-----------------------------------------------------------------------------
+* MJD(Modified Julian Date)를 YYYY-MM-DD로 변환합니다.
+* DVB 표준 (EN 300 468) 기준
+*
+*---------------------------------------------------------------------------*/
+void mjd_to_date(unsigned short mjd, int *year, int *month, int *day)
+{
+    int Y, M, D;
+    int K;
+
+    Y = (int)((mjd - 15078.2) / 365.25);
+    M = (int)((mjd - 14956.1 - (int)(Y * 365.25)) / 30.6001);
+    D = mjd - 14956 - (int)(Y * 365.25) - (int)(M * 30.6001);
+
+    if (M == 14 || M == 15) {
+        K = 1;
+    } else {
+        K = 0;
+    }
+
+    *year = Y + K;
+    *month = M - 1 - K * 12;
+    *day = D;
+
+    // Y를 1900년 기준으로 변환 (DVB MJD는 1858년 11월 17일 시작)
+    *year += 1900; 
+}
+
 /*-----------------------------------------------------------------------------
 *
 *
@@ -144,6 +174,27 @@ void print_final_scan_results(dvb_scan_result_t *scan)
 }
 
 /*-----------------------------------------------------------------------------
+*
+*
+*
+*---------------------------------------------------------------------------*/
+void print_time_of_change(unsigned char *toc)
+{
+    // 1. MJD 변환
+    unsigned short mjd = (toc[0] << 8) | toc[1];
+    int year, month, day;
+    mjd_to_date(mjd, &year, &month, &day);
+
+    // 2. UTC 시간 변환 (BCD)
+    int hour   = ((toc[2] >> 4) * 10) + (toc[2] & 0x0F);
+    int minute = ((toc[3] >> 4) * 10) + (toc[3] & 0x0F);
+    int second = ((toc[4] >> 4) * 10) + (toc[4] & 0x0F);
+
+    Print(" Change Time: %04d-%02d-%02d %02d:%02d:%02d\n", 
+           year, month, day, hour, minute, second);
+}
+
+/*-----------------------------------------------------------------------------
 * PAT(Program Association Table)
 *
 *
@@ -151,14 +202,14 @@ void print_final_scan_results(dvb_scan_result_t *scan)
 pat_section_t* dvb_get_pat(unsigned char *ts, size_t size)
 {
 	int pktLen = detect_packet_len(ts);
-	unsigned char sec_buf[4096];
+	unsigned char sec_buf[MAX_SECTION_BUF_SIZE];
 	int sec_pos = 0;
 	int sec_len = 0;
 	unsigned char *pkt = ts;
 
 	Print("[PAT_SCAN] Start Scanning. FileSize: %ld, PacketLen: %d\n", size, pktLen);
 
-	while (pkt < ts + size)
+	while (pkt < (ts + size))
 	{
 		if (pkt[0] != TS_SYNC_BYTE) {
 			pkt++;
@@ -203,7 +254,7 @@ pat_section_t* dvb_get_pat(unsigned char *ts, size_t size)
 			payload_len -= pointer + 1;
 			sec_pos = 0;
 			sec_len = 0;
-			// Print("[PAT_SCAN] New Section Started (PUSI=1)\n");
+			Print("[PAT_SCAN] New Section Started (PUSI=1)\n");
 		}
 
 		// 섹션 헤더(3바이트: table_id + length) 수집
@@ -255,12 +306,12 @@ pat_section_t* dvb_get_pat(unsigned char *ts, size_t size)
 pmt_section_t* dvb_get_pmt(unsigned char *ts, size_t size, unsigned short target_pid)
 {
     int pktLen = detect_packet_len(ts);
-    unsigned char sec_buf[4096];
+    unsigned char sec_buf[MAX_SECTION_BUF_SIZE];
     int sec_pos = 0;
     int sec_len = 0;
     unsigned char *pkt = ts;
 
-    while (pkt < ts + size)
+    while (pkt < (ts + size))
     {
         if (pkt[0] != TS_SYNC_BYTE) {
             pkt++;
@@ -334,12 +385,12 @@ pmt_section_t* dvb_get_pmt(unsigned char *ts, size_t size, unsigned short target
 sdt_section_t* dvb_get_sdt(unsigned char *ts, size_t size)
 {
     int pktLen = detect_packet_len(ts);
-    unsigned char sec_buf[4096];
+    unsigned char sec_buf[MAX_SECTION_BUF_SIZE];
     int sec_pos = 0;
     int sec_len = 0;
     unsigned char *pkt = ts;
 
-    while (pkt < ts + size)
+    while (pkt < (ts + size))
     {
         if (pkt[0] != TS_SYNC_BYTE) {
             pkt++;
@@ -409,12 +460,12 @@ sdt_section_t* dvb_get_sdt(unsigned char *ts, size_t size)
 tdt_section_t* dvb_get_tdt(unsigned char *ts, size_t size)
 {
     int pktLen = detect_packet_len(ts);
-    unsigned char sec_buf[4096];
+    unsigned char sec_buf[MAX_SECTION_BUF_SIZE];
     int sec_pos = 0;
     int sec_len = 0;
     unsigned char *pkt = ts;
 
-    while (pkt < ts + size)
+    while (pkt < (ts + size))
     {
         if (pkt[0] != TS_SYNC_BYTE) {
             pkt++;
@@ -468,6 +519,81 @@ tdt_section_t* dvb_get_tdt(unsigned char *ts, size_t size)
             // TDT Table ID: 0x70
             if (sec_buf[0] == TDT_TID){
                 return tdt_parse_section(sec_buf);
+            }
+            sec_pos = 0;
+        }
+        pkt += pktLen;
+    }
+    return NULL;
+}
+
+/*-----------------------------------------------------------------------------
+* TOT(Time Offset Table)
+*
+*
+*---------------------------------------------------------------------------*/
+tot_section_t* dvb_get_tot(unsigned char *ts, size_t size)
+{
+    int pktLen = detect_packet_len(ts);
+    unsigned char sec_buf[MAX_SECTION_BUF_SIZE];
+    int sec_pos = 0;
+    int sec_len = 0;
+    unsigned char *pkt = ts;
+
+    while (pkt < (ts + size))
+    {
+        if (pkt[0] != TS_SYNC_BYTE) {
+            pkt++;
+            continue;
+        }
+
+        unsigned short pid = ((pkt[1] & 0x1F) << 8) | pkt[2];
+        if (pid != TOT_PID) {
+            pkt += pktLen;
+            continue;
+        }
+
+        unsigned char pusi = (pkt[1] & 0x40) >> 6;
+        unsigned char afc = (pkt[3] & 0x30) >> 4;
+        int header_len = 4;
+
+        if (afc == 2) { pkt += pktLen; continue; }
+        if (afc == 3) header_len += pkt[4] + 1;
+        
+        unsigned char *payload = pkt + header_len;
+        int payload_len = pktLen - header_len;
+
+        if (pusi) {
+            int pointer = payload[0];
+            payload += pointer + 1;
+            payload_len -= pointer + 1;
+            sec_pos = 0;
+        }
+
+        if (sec_pos < 3 && payload_len > 0) {
+            int need = 3 - sec_pos;
+            if (need > payload_len) need = payload_len;
+            memcpy(sec_buf + sec_pos, payload, need);
+            sec_pos += need;
+            payload += need;
+            payload_len -= need;
+
+            if (sec_pos >= 3) {
+                sec_len = (((sec_buf[1] & 0x0F) << 8) | sec_buf[2]) + 3;
+            }
+        }
+
+        if (sec_len > 0 && sec_pos < sec_len && payload_len > 0) {
+            int copy = sec_len - sec_pos;
+            if (copy > payload_len) copy = payload_len;
+            memcpy(sec_buf + sec_pos, payload, copy);
+            sec_pos += copy;
+        }
+
+        if (sec_len > 0 && sec_pos >= sec_len) {
+            // TOT Table ID: 0x73
+            if (sec_buf[0] == TOT_TID){
+                return tot_parse_section(sec_buf);
             }
             sec_pos = 0;
         }
@@ -595,35 +721,7 @@ void update_service_name_from_sdt(dvb_scan_result_t *scan, sdt_section_t *sdt)
 }
 
 /*-----------------------------------------------------------------------------
-* MJD(Modified Julian Date)를 YYYY-MM-DD로 변환합니다.
-* DVB 표준 (EN 300 468) 기준
-*
-*---------------------------------------------------------------------------*/
-void mjd_to_date(unsigned short mjd, int *year, int *month, int *day)
-{
-    int Y, M, D;
-    int K;
-
-    Y = (int)((mjd - 15078.2) / 365.25);
-    M = (int)((mjd - 14956.1 - (int)(Y * 365.25)) / 30.6001);
-    D = mjd - 14956 - (int)(Y * 365.25) - (int)(M * 30.6001);
-
-    if (M == 14 || M == 15) {
-        K = 1;
-    } else {
-        K = 0;
-    }
-
-    *year = Y + K;
-    *month = M - 1 - K * 12;
-    *day = D;
-
-    // Y를 1900년 기준으로 변환 (DVB MJD는 1858년 11월 17일 시작)
-    *year += 1900; 
-}
-
-/*-----------------------------------------------------------------------------
-* TDT 섹션 정보를 바탕으로 System time( UTC ) 업데이트
+* TDT(Time and Date Table) 섹션 정보를 바탕으로 System time( UTC ) 업데이트
 * time[0,1]: MJD (Modified Julian Date)
 * time[2,3,4]: UTC Time (HH, MM, SS)
 *---------------------------------------------------------------------------*/
@@ -645,6 +743,85 @@ void update_time_from_tdt(dvb_scan_result_t *scan, tdt_section_t *tdt)
 	// 3. 결과 출력
 	Print("\n[TDT_SCAN] Current Date: %04d-%02d-%02d\n", year, month, day);
 	Print("[TDT_SCAN] Current UTC Time: %02d:%02d:%02d\n", hour, minute, second);
+}
+
+/*-----------------------------------------------------------------------------
+* TOT(Time Offset Table) 섹션 정보를 바탕으로 현지 시간(Local Time)을 업데이트
+*
+*
+*---------------------------------------------------------------------------*/
+void update_time_from_tot(dvb_scan_result_t *scan, tot_section_t *tot)
+{
+	int count  = 0;
+	
+    if (!scan || !tot) return;
+
+    // 1. 기본 UTC 시간 및 날짜 추출 (TDT와 동일 로직)
+    unsigned short mjd = (tot->time[0] << 8) | tot->time[1];
+    int year, month, day;
+    mjd_to_date(mjd, &year, &month, &day);
+
+    int hour   = ((tot->time[2] >> 4) * 10) + (tot->time[2] & 0x0F);
+    int minute = ((tot->time[3] >> 4) * 10) + (tot->time[3] & 0x0F);
+    int second = ((tot->time[4] >> 4) * 10) + (tot->time[4] & 0x0F);
+
+    Print("\n[TOT_SCAN] UTC Date: %04d-%02d-%02d, Time: %02d:%02d:%02d\n", 
+           year, month, day, hour, minute, second);
+
+    // 2. Local Time Offset Descriptor 파싱 (Tag: 0x58)
+    // TOT는 디스크립터 영역에 지역 시차 정보를 포함합니다.
+    descriptor_t *desc = tot->desc;
+    while (desc) {
+        if (desc->tag == DESC_TAG_LOCAL_TIME_OFFSET) { // local_time_offset_descriptor
+            // 데이터 구조에 따라 시차(offset)를 추출합니다.
+            // 보통 2바이트 정보를 통해 UTC 대비 시차를 계산합니다.
+
+			Print("\n[TOT_SCAN] Local Time Offset Descriptors Found:\n");
+			Print("--------------------------------------------------\n");
+			Print(" No. | Country | Reg ID | Polarity | Offset | Time of Change      | Next Time Offset \n");
+			Print("--------------------------------------------------\n");
+
+			local_time_offset_desc_t *local_time_offset_desc = (local_time_offset_desc_t *)desc->data;
+			local_time_offset_data_t *offset_data = local_time_offset_desc->offset_data;
+
+			while(offset_data != NULL)
+			{
+				// Polarity: 0은 양수(+), 1은 음수(-)
+				char polarity = (offset_data->local_time_offset_polarity == 0) ? '+' : '-';
+
+				// time_of_change[5] 중 앞의 2바이트를 MJD로 추출
+				unsigned short mjd_val = (offset_data->time_of_change[0] << 8) | offset_data->time_of_change[1];
+
+				int year, month, day;
+				mjd_to_date(mjd_val, &year, &month, &day); // 앞서 만든 mjd_to_date 함수 활용
+
+				// 수정 제안 예시: time_of_change의 시간(HH:MM:SS) 부분을 10진수로 변환하여 출력
+				int toc_h = ((offset_data->time_of_change[2] >> 4) * 10) + (offset_data->time_of_change[2] & 0x0F);
+				int toc_m = ((offset_data->time_of_change[3] >> 4) * 10) + (offset_data->time_of_change[3] & 0x0F);
+				int toc_s = ((offset_data->time_of_change[4] >> 4) * 10) + (offset_data->time_of_change[4] & 0x0F);
+				// Print 문에서 toc_h, toc_m, toc_s 사용
+				
+				// Offset (2바이트 BCD) 및 Time of Change (5바이트 BCD)
+				// 시차는 보통 HH:MM 형태로 출력
+				Print(" %-3d | %c%c%c     | 0x%02X   | %c        | %02X:%02X  | %04d-%02d-%02d %02X:%02X:%02X | %02X:%02X\n",
+					   count,
+					   offset_data->country_code[0], offset_data->country_code[1], offset_data->country_code[2],
+					   offset_data->country_region_id,
+					   polarity,
+					   offset_data->local_time_offset[0], offset_data->local_time_offset[1],
+					   year, month, day, toc_h, toc_m, toc_s,
+					   offset_data->next_time_offset[0], offset_data->next_time_offset[1]);
+
+				print_time_of_change(offset_data->time_of_change);
+				
+				offset_data = offset_data->next;
+				count++;
+			}
+
+			Print("--------------------------------------------------\n");
+        }
+        desc = desc->next;
+    }
 }
 
 /*-----------------------------------------------------------------------------
@@ -731,6 +908,13 @@ void scan_channel(void)
 	if (tdt) {
 		update_time_from_tdt(&dvb_scan.scan, tdt);
 		tdt_free_section(tdt);
+	}
+
+	// parse TOT
+	tot_section_t *tot = dvb_get_tot(p, file_size);
+	if (tot) {
+		update_time_from_tot(&dvb_scan.scan, tot);
+		tot_free_section(tot);
 	}
 
 	free_scan_results(&dvb_scan.scan);
