@@ -156,7 +156,7 @@ pmt_section_t *pmt_parse_section(unsigned char * p)
 
 	p += 2;
 	
-	if ((section_length == 0) || (section_length > 1024))
+	if ((section_length == 0) || (section_length > MAX_SECTION_LENGTH))
 	{
 		DTV_FREE(sec);
 		return NULL;

@@ -21,6 +21,7 @@
 #include "pat.h"
 #include "pmt.h"
 #include "sdt.h"
+#include "tdt.h"
 
 #include "scan.h"
 
@@ -159,7 +160,7 @@ pat_section_t* dvb_get_pat(unsigned char *ts, size_t size)
 
 	while (pkt < ts + size)
 	{
-		if (pkt[0] != 0x47) {
+		if (pkt[0] != TS_SYNC_BYTE) {
 			pkt++;
 			continue;
 		}
@@ -261,7 +262,7 @@ pmt_section_t* dvb_get_pmt(unsigned char *ts, size_t size, unsigned short target
 
     while (pkt < ts + size)
     {
-        if (pkt[0] != 0x47) {
+        if (pkt[0] != TS_SYNC_BYTE) {
             pkt++;
             continue;
         }
@@ -315,7 +316,7 @@ pmt_section_t* dvb_get_pmt(unsigned char *ts, size_t size, unsigned short target
 
         if (sec_len > 0 && sec_pos >= sec_len) {
             // Table ID 0x02가 PMT임을 확인
-            if (sec_buf[0] == 0x02) {
+            if (sec_buf[0] == PMT_TID) {
                 return pmt_parse_section(sec_buf);
             }
             sec_pos = 0; // 다른 테이블일 경우 초기화 후 계속 검색
@@ -340,7 +341,10 @@ sdt_section_t* dvb_get_sdt(unsigned char *ts, size_t size)
 
     while (pkt < ts + size)
     {
-        if (pkt[0] != 0x47) { pkt++; continue; }
+        if (pkt[0] != TS_SYNC_BYTE) {
+            pkt++;
+            continue;
+        }
 
         unsigned short pid = ((pkt[1] & 0x1F) << 8) | pkt[2];
         if (pid != SDT_PID) { // 0x0011
@@ -387,8 +391,83 @@ sdt_section_t* dvb_get_sdt(unsigned char *ts, size_t size)
 
         if (sec_len > 0 && sec_pos >= sec_len) {
             // SDT Table ID: 0x42 (Actual TS)
-            if ((sec_buf[0] == 0x42) || (sec_buf[0] == 0x46)){
+            if ((sec_buf[0] == SDT_A_TID) || (sec_buf[0] == SDT_O_TID)){
                 return sdt_parse_section(sec_buf);
+            }
+            sec_pos = 0;
+        }
+        pkt += pktLen;
+    }
+    return NULL;
+}
+
+/*-----------------------------------------------------------------------------
+* TDT(Time and Date Table)
+*
+*
+*---------------------------------------------------------------------------*/
+tdt_section_t* dvb_get_tdt(unsigned char *ts, size_t size)
+{
+    int pktLen = detect_packet_len(ts);
+    unsigned char sec_buf[4096];
+    int sec_pos = 0;
+    int sec_len = 0;
+    unsigned char *pkt = ts;
+
+    while (pkt < ts + size)
+    {
+        if (pkt[0] != TS_SYNC_BYTE) {
+            pkt++;
+            continue;
+        }
+
+        unsigned short pid = ((pkt[1] & 0x1F) << 8) | pkt[2];
+        if (pid != TDT_PID) {
+            pkt += pktLen;
+            continue;
+        }
+
+        unsigned char pusi = (pkt[1] & 0x40) >> 6;
+        unsigned char afc = (pkt[3] & 0x30) >> 4;
+        int header_len = 4;
+
+        if (afc == 2) { pkt += pktLen; continue; }
+        if (afc == 3) header_len += pkt[4] + 1;
+        
+        unsigned char *payload = pkt + header_len;
+        int payload_len = pktLen - header_len;
+
+        if (pusi) {
+            int pointer = payload[0];
+            payload += pointer + 1;
+            payload_len -= pointer + 1;
+            sec_pos = 0;
+        }
+
+        if (sec_pos < 3 && payload_len > 0) {
+            int need = 3 - sec_pos;
+            if (need > payload_len) need = payload_len;
+            memcpy(sec_buf + sec_pos, payload, need);
+            sec_pos += need;
+            payload += need;
+            payload_len -= need;
+
+            if (sec_pos >= 3) {
+                sec_len = (((sec_buf[1] & 0x0F) << 8) | sec_buf[2]) + 3;
+            }
+        }
+
+        if (sec_len > 0 && sec_pos < sec_len && payload_len > 0) {
+            int copy = sec_len - sec_pos;
+            if (copy > payload_len) copy = payload_len;
+            memcpy(sec_buf + sec_pos, payload, copy);
+            sec_pos += copy;
+        }
+
+        if (sec_len > 0 && sec_pos >= sec_len) {
+            // TDT Table ID: 0x70
+            if (sec_buf[0] == TDT_TID){
+                return tdt_parse_section(sec_buf);
             }
             sec_pos = 0;
         }
@@ -516,6 +595,59 @@ void update_service_name_from_sdt(dvb_scan_result_t *scan, sdt_section_t *sdt)
 }
 
 /*-----------------------------------------------------------------------------
+* MJD(Modified Julian Date)를 YYYY-MM-DD로 변환합니다.
+* DVB 표준 (EN 300 468) 기준
+*
+*---------------------------------------------------------------------------*/
+void mjd_to_date(unsigned short mjd, int *year, int *month, int *day)
+{
+    int Y, M, D;
+    int K;
+
+    Y = (int)((mjd - 15078.2) / 365.25);
+    M = (int)((mjd - 14956.1 - (int)(Y * 365.25)) / 30.6001);
+    D = mjd - 14956 - (int)(Y * 365.25) - (int)(M * 30.6001);
+
+    if (M == 14 || M == 15) {
+        K = 1;
+    } else {
+        K = 0;
+    }
+
+    *year = Y + K;
+    *month = M - 1 - K * 12;
+    *day = D;
+
+    // Y를 1900년 기준으로 변환 (DVB MJD는 1858년 11월 17일 시작)
+    *year += 1900; 
+}
+
+/*-----------------------------------------------------------------------------
+* TDT 섹션 정보를 바탕으로 System time( UTC ) 업데이트
+* time[0,1]: MJD (Modified Julian Date)
+* time[2,3,4]: UTC Time (HH, MM, SS)
+*---------------------------------------------------------------------------*/
+void update_time_from_tdt(dvb_scan_result_t *scan, tdt_section_t *tdt)
+{
+	if (!scan || !tdt) return;
+
+	// 1. MJD 추출 및 변환
+	unsigned short mjd = (tdt->time[0] << 8) | tdt->time[1];
+	int year, month, day;
+	mjd_to_date(mjd, &year, &month, &day);
+
+	// 2. UTC 시간 추출 (BCD 포맷 처리를 포함한 예시)
+	// DVB BCD: (val >> 4) * 10 + (val & 0x0F)
+	int hour   = ((tdt->time[2] >> 4) * 10) + (tdt->time[2] & 0x0F);
+	int minute = ((tdt->time[3] >> 4) * 10) + (tdt->time[3] & 0x0F);
+	int second = ((tdt->time[4] >> 4) * 10) + (tdt->time[4] & 0x0F);
+
+	// 3. 결과 출력
+	Print("\n[TDT_SCAN] Current Date: %04d-%02d-%02d\n", year, month, day);
+	Print("[TDT_SCAN] Current UTC Time: %02d:%02d:%02d\n", hour, minute, second);
+}
+
+/*-----------------------------------------------------------------------------
 *
 *
 *
@@ -557,7 +689,8 @@ void scan_channel(void)
 	if (!dvb_scan.buf) return;
 	unsigned char *p = dvb_scan.buf;
 	size_t file_size = dvb_scan.size;
-	
+
+	// parse PAT
 	pat_section_t *pat = dvb_get_pat(p, file_size);
 	if(pat) {
 		pat_program_data_t *prog = pat->prog_data;
@@ -571,6 +704,7 @@ void scan_channel(void)
 		pat_free_section(pat);
 		print_scan_pat_services(&dvb_scan.scan);
 		
+		// parse PMT
 		scan_service_t *curr_svc = dvb_scan.scan.services;
 		while (curr_svc) {
 			pmt_section_t *pmt = dvb_get_pmt(p, file_size, curr_svc->pmt_pid);
@@ -582,6 +716,7 @@ void scan_channel(void)
 			curr_svc = curr_svc->next;
 		}
 
+		// parse SDT
 		sdt_section_t *sdt = dvb_get_sdt(p, file_size);
 		if (sdt) {
 			update_service_name_from_sdt(&dvb_scan.scan, sdt);
@@ -590,7 +725,14 @@ void scan_channel(void)
 		
 		print_final_scan_results(&dvb_scan.scan);
 	}
-	
+
+	// parse TDT
+	tdt_section_t *tdt = dvb_get_tdt(p, file_size);
+	if (tdt) {
+		update_time_from_tdt(&dvb_scan.scan, tdt);
+		tdt_free_section(tdt);
+	}
+
 	free_scan_results(&dvb_scan.scan);
 }
 

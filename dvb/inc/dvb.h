@@ -25,9 +25,9 @@
  *
  *
  *---------------------------------------------------------------------------*/
-// MPEG-TS(Transport Stream) 의 TS 패킷의 전체 길이
-#define DTV_TS_PACKET_LEN 				188
-	
+#define TS_SYNC_BYTE  					0x47  /* MPEG-TS Packet Sync Byte */
+#define DTV_TS_PACKET_LEN 				188 /* MPEG-TS(Transport Stream) 의 TS 패킷의 전체 길이 */
+#define MAX_SECTION_LENGTH 				1024	
 
 #define DTV_INVALID_PID					0x1FFF
 #define DTV_INVALID_NETWORK_ID			0xFFFF
