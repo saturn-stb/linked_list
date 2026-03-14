@@ -66,6 +66,18 @@ typedef struct
     scan_service_t *services;
 } dvb_scan_result_t;
 
+typedef struct
+{
+	FILE *fp;
+	size_t size;
+
+	void *buf;
+	unsigned long dscr;
+
+	dvb_scan_result_t scan;
+	
+} dvb_scan_t;
+
 /*-----------------------------------------------------------------------------
 *
 *
@@ -83,7 +95,7 @@ typedef struct
 *
 *
 *---------------------------------------------------------------------------*/
-extern void scan_channel(unsigned long dscr);
+extern void scan_channel(void);
 extern void open_channel_file(const char *file_name);
 
 

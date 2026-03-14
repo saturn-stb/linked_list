@@ -132,15 +132,18 @@ sdt_section_t * sdt_parse_section(unsigned char * p)
 	section_length = (signed short)get_12bit(p);	
 	// table_id 1byte + section_length 2bytes = 3bytes)
 	total_len = (signed short)(section_length + 3);
+	//hexDump("SDT", (void *)(p - 1), total_len);
 	// CRC32 verify
 	get_crc = get_32bit(p + (total_len - 1 - 4));
 	mpeg_crc = get_mpeg_crc32(p - 1, total_len - 4);
+	//Print("[SDT INFO] section_length=%d, total_len=%d, table_id=0x%02x, CRC_pos=%d\n", section_length, total_len, *(p-1), (total_len - 4));
+	//Print("[SDT INFO] mpeg_crc 0x%04X, 0x%04X\n", get_crc, mpeg_crc);
 	if (mpeg_crc != get_crc)
 	{
 		DTV_FREE(sec);
 		return NULL;
 	}
-	
+
 	p += 2;
 	
 	if ((section_length == 0) || (section_length > 1024))
@@ -206,6 +209,7 @@ sdt_section_t * sdt_parse_section(unsigned char * p)
 		desc_loop_length = (signed short)get_12bit(p);
 		p += 2; section_length = (unsigned short)(section_length - 2);
 
+		prev_desc = NULL;
 		while ((section_length > 0)
 			&& (section_length >= desc_loop_length) && (desc_loop_length > 0))
 		{

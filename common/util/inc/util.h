@@ -124,4 +124,13 @@ int parse_hex_line(char *theline, int bytes[], int *addr, int *num, int *code);
 /* and close the file */
 void hexout(FILE *fhex, int byte, int memory_location, int end);
 
+void *File_Open(const char *file_name, const char *mode);
+void File_Close(FILE *fp);
+size_t File_GetSize(FILE *fp);
+int File_Read(FILE *fp, void *ptr, size_t size);
+int File_Write(FILE *fp, const void *ptr, size_t size);
+
+void* Safe_Malloc(size_t size);
+void Safe_Free(void **ptr);
+
 #endif /* _UTIL_ */

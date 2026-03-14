@@ -46,7 +46,7 @@
 *
 *
 *---------------------------------------------------------------------------*/
-static long gfileSize = 0;
+static dvb_scan_t dvb_scan;
 
 /******************************************************************************
 *
@@ -54,238 +54,347 @@ static long gfileSize = 0;
 *
 *****************************************************************************/
 /*-----------------------------------------------------------------------------
-* PAT(Program Association Table
-* dscr 파일 데이터가 로드된 메모리 시작 주소
+*
+*
 *
 *---------------------------------------------------------------------------*/
-unsigned short pat_parse(unsigned char *p, dvb_scan_result_t *scan)
+void print_scan_pat_services(dvb_scan_result_t *scan)
 {
-    pat_section_t *pat = NULL;
-    int i = 0, pktLen = 0;
-	unsigned short count = 0;
+    scan_service_t *svc = scan->services;
 
-	if(p == NULL) 
-	{
-		Print("[PAT ERROR] Received section data is NULL\n");
-		return 0xFFFF;
-	}
+    Print("==================================================\n");
+    Print(" PAT\n");
+    Print("==================================================\n");
+    Print("TS_ID : %d\n", scan->ts_id);
+    Print("Total services : %d\n", scan->total_services);
 
-	pktLen = detect_packet_len(p);
-
-    // MPEG-TS 패킷 크기는 일반적으로 188바이트
-    // 0x47(Sync Byte)을 찾고 PID가 0x0000인 패킷을 찾아야 함
-    while (i < 1000000) // 파일 전체를 검색 (범위 제한 필요)
+    while(svc)
     {
-        // Sync Byte 확인
-        if (p[i] == 0x47) 
-        {
-            // PID 추출 (13비트)
-            unsigned short pid = ((p[i+1] & 0x1F) << 8) | p[i+2];
-            
-            if (pid == PAT_PID) // PAT PID 발견
-            {
-                // Payload Unit Start Indicator (PUSI) 확인
-                unsigned char pusi = (p[i+1] & 0x40) >> 6;
-                if (pusi)
-                {
-                    // Pointer field를 건너뛰고 실제 데이터 시작점 계산
-                    unsigned char pointer_field = p[i+4];
-                    unsigned char *section_data = &p[i+4+1+pointer_field];
-					unsigned short idx = 0;
-					
-                    // PAT 파싱 수행
-                    pat = pat_parse_section(section_data);
-                    
-                    if (pat != NULL)
-					{
-						pat_program_data_t *prog_data = pat->prog_data;
+		Print(" Program: %-5d | PMT PID: 0x%04X\n", svc->program_number, svc->pmt_pid);
 
-						scan->ts_id = pat->ts_id;
-
-						while(prog_data != NULL)
-						{
-							if(idx < MAX_PAT_PROGRAMS)
-							{
-								// 1. 새로운 노드 할당 및 초기화
-								scan_service_t *services = (scan_service_t *)malloc(sizeof(scan_service_t));
-								if(services != NULL)
-								{
-									memset(services, 0x0, sizeof(scan_service_t));
-									services->streams = NULL; // [중요] 스트림 리스트 시작 포인터 초기화
-									services->next = NULL; // 새로운 노드는 항상 마지막이므로 next를 NULL로 설정
-								
-									// 2. 리스트 연결 (Queue 방식: 순서 유지)
-									if (scan->services == NULL)
-									{
-										// 리스트가 비어있다면 바로 첫 번째 노드로 설정
-										scan->services = services;
-									}
-									else
-									{
-										// 마지막 노드까지 이동
-										// [수정] tail의 타입을 명확히 scan_service_t *로 선언
-										scan_service_t *tail = scan->services;
-										while (tail->next != NULL)
-										{
-											tail = tail->next;
-										}
-
-										tail->next = services; // 여기서 경고가 뜬다면 next 멤버 정의를 다시 확인하세요.
-									}
-
-									// program_number가 0x0000 (NIT)
-									if(prog_data->program_number == 0x0000)
-									{
-										services->program_number = prog_data->program_number;
-										scan->network_id = prog_data->pmt_pid;
-									}
-									else
-									{
-										services->program_number = prog_data->program_number;
-										services->pmt_pid = prog_data->pmt_pid;
-									}
-
-									idx++;
-								}
-							}
-
-							prog_data = prog_data->next;
-						}
-
-						scan->total_services = idx; // 총 개수 업데이트
-						count = idx;
-						
-                        pat_free_section(pat);
-                    }
-                }
-            }
-        }
-        i += pktLen; // 188, 다음 패킷으로 이동
+        svc = svc->next;
     }
-
-	return count;
 }
 
 /*-----------------------------------------------------------------------------
-* 파일 내에서 특정 PID를 가진 첫 번째 패킷의 데이터 시작 주소를 반환
-* dscr 파일 데이터가 로드된 메모리 시작 주소
-* target_pid 찾고자 하는 PID (13비트)
-* 패킷 데이터 시작 주소 (찾지 못하면 NULL)
+*
+*
+*
 *---------------------------------------------------------------------------*/
-unsigned char *find_packet_by_pid(unsigned char *p, unsigned short target_pid)
+void print_scan_pmt_services(scan_service_t *svc)
 {
-    int pktLen = detect_packet_len(p); // 이미 구현된 패킷 길이 감지 함수 사용
-    long fileSize = gfileSize; // 파일 사이즈 (실제 환경에 맞게 조정 필요)
+    stream_info_t *s;
 
-    // 패킷 단위로 점프하며 검색
-    for (int i = 0; i < (fileSize - pktLen); i += pktLen)
+    Print("Program %d\n", svc->program_number);
+    Print("PCR PID : 0x%X\n", svc->pcr_pid);
+
+    s = svc->streams;
+
+    while(s)
     {
-        // Sync Byte 확인
-        if (p[i] == 0x47) 
-        {
-            // PID 추출 (13비트)
-            unsigned short pid = ((p[i+1] & 0x1F) << 8) | p[i+2];
-            
-            if (pid == target_pid)
-            {
-                // 찾은 패킷의 데이터 시작 주소 반환
-                return &p[i];
+        Print("  Stream Type: 0x%X  PID: 0x%X\n",
+               s->stream_type,
+               s->elementary_pid);
+
+        s = s->next;
+    }
+}
+
+/*-----------------------------------------------------------------------------
+*
+*
+*
+*---------------------------------------------------------------------------*/
+void print_final_scan_results(dvb_scan_result_t *scan)
+{
+    scan_service_t *svc = scan->services;
+    int count = 0;
+
+    Print("\n==================================================\n");
+    Print(" FINAL CHANNEL SCAN RESULTS (Total: %d)\n", scan->total_services);
+    Print("==================================================\n");
+    Print(" No.  | Prog ID | Channel Name        | PMT PID\n");
+    Print("--------------------------------------------------\n");
+
+    while(svc)
+    {
+        count++;
+        // 채널 이름이 비어있으면 "Unknown"으로 표시
+        char *name = (svc->service_name[0] != '\0') ? (char*)svc->service_name : "Unknown";
+
+        Print(" %-4d | %-7d | %-19s | 0x%04X\n", 
+               count, 
+               svc->program_number, 
+               name, 
+               svc->pmt_pid);
+        
+        // 상세 스트림 정보(비디오/오디오 PID)까지 보고 싶다면 아래 주석 해제
+        /*
+        stream_info_t *s = svc->streams;
+        while(s) {
+            Print("    -> Stream Type: 0x%02X, PID: 0x%04X\n", s->stream_type, s->elementary_pid);
+            s = s->next;
+        }
+        */
+
+        svc = svc->next;
+    }
+    Print("==================================================\n\n");
+}
+
+/*-----------------------------------------------------------------------------
+* PAT(Program Association Table)
+*
+*
+*---------------------------------------------------------------------------*/
+pat_section_t* dvb_get_pat(unsigned char *ts, size_t size)
+{
+	int pktLen = detect_packet_len(ts);
+	unsigned char sec_buf[4096];
+	int sec_pos = 0;
+	int sec_len = 0;
+	unsigned char *pkt = ts;
+
+	Print("[PAT_SCAN] Start Scanning. FileSize: %ld, PacketLen: %d\n", size, pktLen);
+
+	while (pkt < ts + size)
+	{
+		if (pkt[0] != 0x47) {
+			pkt++;
+			continue;
+		}
+
+		unsigned short pid = ((pkt[1] & 0x1F) << 8) | pkt[2];
+		if (pid != PAT_PID) {
+			pkt += pktLen;
+			continue;
+		}
+
+		unsigned char pusi = (pkt[1] & 0x40) >> 6;
+		unsigned char afc = (pkt[3] & 0x30) >> 4;
+		int header_len = 4;
+
+		if (afc == 2) { // Adaptation Field only
+			pkt += pktLen;
+			continue;
+		}
+
+		if (afc == 3) { // Adaptation Field + Payload
+			header_len += pkt[4] + 1;
+		}
+
+		if (header_len >= pktLen) { // 잘못된 헤더 길이 방어
+			pkt += pktLen;
+			continue;
+		}
+
+		unsigned char *payload = pkt + header_len;
+		int payload_len = pktLen - header_len;
+
+		// PUSI가 1이면 새로운 섹션이 시작됨
+		if (pusi) {
+			int pointer = payload[0];
+			if (pointer + 1 > payload_len) { // pointer_field 오류 방어
+				pkt += pktLen;
+				continue;
+			}
+			payload += pointer + 1;
+			payload_len -= pointer + 1;
+			sec_pos = 0;
+			sec_len = 0;
+			// Print("[PAT_SCAN] New Section Started (PUSI=1)\n");
+		}
+
+		// 섹션 헤더(3바이트: table_id + length) 수집
+		if (sec_pos < 3 && payload_len > 0) {
+			int need = 3 - sec_pos;
+			if (need > payload_len) need = payload_len;
+
+			memcpy(sec_buf + sec_pos, payload, need);
+			sec_pos += need;
+			payload += need;
+			payload_len -= need;
+
+			if (sec_pos >= 3) {
+				sec_len = (((sec_buf[1] & 0x0F) << 8) | sec_buf[2]) + 3;
+				if (sec_len > (int)sizeof(sec_buf)) {
+					Print("[PAT_ERR] Section too large: %d\n", sec_len);
+					return NULL;
+				}
+			}
+		}
+
+		// 나머지 데이터 수집
+		if (sec_len > 0 && sec_pos < sec_len && payload_len > 0) {
+			int copy = sec_len - sec_pos;
+			if (copy > payload_len) copy = payload_len;
+
+			memcpy(sec_buf + sec_pos, payload, copy);
+			sec_pos += copy;
+		}
+
+		// 섹션 조립 완료 확인
+		if (sec_len > 0 && sec_pos >= sec_len) {
+			Print("[PAT_SCAN] Section Reassembled. TableID: 0x%02X, TotalLen: %d\n", sec_buf[0], sec_len);
+			return pat_parse_section(sec_buf); // 파싱 및 반환
+		}
+
+		pkt += pktLen;
+	}
+
+	Print("[PAT_SCAN] PAT not found or Incomplete.\n");
+	return NULL;
+}
+
+/*-----------------------------------------------------------------------------
+* PMT(Program Map Table)
+*
+*
+*---------------------------------------------------------------------------*/
+pmt_section_t* dvb_get_pmt(unsigned char *ts, size_t size, unsigned short target_pid)
+{
+    int pktLen = detect_packet_len(ts);
+    unsigned char sec_buf[4096];
+    int sec_pos = 0;
+    int sec_len = 0;
+    unsigned char *pkt = ts;
+
+    while (pkt < ts + size)
+    {
+        if (pkt[0] != 0x47) {
+            pkt++;
+            continue;
+        }
+
+        unsigned short pid = ((pkt[1] & 0x1F) << 8) | pkt[2];
+        if (pid != target_pid) {
+            pkt += pktLen;
+            continue;
+        }
+
+        unsigned char pusi = (pkt[1] & 0x40) >> 6;
+        unsigned char afc = (pkt[3] & 0x30) >> 4;
+        int header_len = 4;
+
+        if (afc == 2) { pkt += pktLen; continue; }
+        if (afc == 3) header_len += pkt[4] + 1;
+        if (header_len >= pktLen) { pkt += pktLen; continue; }
+
+        unsigned char *payload = pkt + header_len;
+        int payload_len = pktLen - header_len;
+
+        if (pusi) {
+            int pointer = payload[0];
+            if (pointer + 1 > payload_len) { pkt += pktLen; continue; }
+            payload += pointer + 1;
+            payload_len -= pointer + 1;
+            sec_pos = 0;
+        }
+
+        // 섹션 헤더 수집 (3바이트)
+        if (sec_pos < 3 && payload_len > 0) {
+            int need = 3 - sec_pos;
+            if (need > payload_len) need = payload_len;
+            memcpy(sec_buf + sec_pos, payload, need);
+            sec_pos += need;
+            payload += need;
+            payload_len -= need;
+
+            if (sec_pos >= 3) {
+                sec_len = (((sec_buf[1] & 0x0F) << 8) | sec_buf[2]) + 3;
             }
         }
-    }
 
-    Print("[SEARCH] PID 0x%04X not found.\n", target_pid);
+        // 데이터 수집
+        if (sec_len > 0 && sec_pos < sec_len && payload_len > 0) {
+            int copy = sec_len - sec_pos;
+            if (copy > payload_len) copy = payload_len;
+            memcpy(sec_buf + sec_pos, payload, copy);
+            sec_pos += copy;
+        }
+
+        if (sec_len > 0 && sec_pos >= sec_len) {
+            // Table ID 0x02가 PMT임을 확인
+            if (sec_buf[0] == 0x02) {
+                return pmt_parse_section(sec_buf);
+            }
+            sec_pos = 0; // 다른 테이블일 경우 초기화 후 계속 검색
+        }
+        pkt += pktLen;
+    }
     return NULL;
 }
 
 /*-----------------------------------------------------------------------------
-* PMT(Program Map Table
-* PMT 테이블을 파싱하여 프로그램 내의 스트림 정보(비디오/오디오 PID)를 출력
+* SDT(Service Description Table)
+*
 *
 *---------------------------------------------------------------------------*/
-unsigned short pmt_parse(unsigned char *p, scan_service_t *services)
+sdt_section_t* dvb_get_sdt(unsigned char *ts, size_t size)
 {
-    pmt_section_t *pmt = NULL;
-	unsigned short count = 0;
-	unsigned short idx = 0;
-    
-    if (p == NULL)
-	{
-        Print("[PMT ERROR] Received section data is NULL\n");
-        return 0xFFFF;
-    }
+    int pktLen = detect_packet_len(ts);
+    unsigned char sec_buf[4096];
+    int sec_pos = 0;
+    int sec_len = 0;
+    unsigned char *pkt = ts;
 
-    // 1. PMT 섹션 파싱 (pmt_parse_section 내부에서 es_data 할당 및 연결)
-    pmt = pmt_parse_section(p);
-    if (pmt == NULL)
-	{
-        Print("[PMT ERROR] Failed to parse PMT section\n");
-        return 0xFFFF;
-    }
-
-	if(services->program_number != pmt->program_number)
-	{
-		// 4. 메모리 해제 (구조체 멤버인 es_data와 desc를 모두 해제해야 함)
-		pmt_free_section(pmt);
-        return 0xFFFF;
-	}
-	
-	services->pcr_pid = pmt->pcr_pid;
-
-	descriptor_t *desc = pmt->desc;
-	count = 0;
-	idx = 0;
-    while (desc != NULL)
+    while (pkt < ts + size)
     {
-		//Print(" 	-> Has Descriptors\n");
-        desc = desc->next;
-		count++;
-    }
+        if (pkt[0] != 0x47) { pkt++; continue; }
 
-    // 3. Elementary Stream(ES) 데이터 순회
-    pmt_es_data_t *es = pmt->es_data;
-	stream_info_t *last_stream = NULL; // 리스트 끝을 유지할 포인터
-	count = 0;
-	idx = 0;
-    while (es != NULL)
-    {
-		// 1. 새로운 노드 할당 및 초기화
-		stream_info_t *new_stream = (stream_info_t *)malloc(sizeof(stream_info_t));
-		if(new_stream != NULL)
-		{
-			memset(new_stream, 0x0, sizeof(stream_info_t));
-
-			new_stream->stream_type = es->stream_type;
-			new_stream->elementary_pid = es->elem_pid;
-
-			// Queue 방식 최적화 (tail을 매번 찾지 않음)	
-			if (services->streams == NULL)
-			{
-				services->streams = new_stream;
-			}
-			else
-			{
-				last_stream->next = new_stream;
-			}
-
-			last_stream = new_stream; // 다음 노드를 위해 업데이트
-			idx++;
-		}
-		
-        // 디스크립터가 있다면 추가 출력 가능
-        if (es->desc != NULL)
-		{
-            //Print("     -> Has Descriptors in es\n");
+        unsigned short pid = ((pkt[1] & 0x1F) << 8) | pkt[2];
+        if (pid != SDT_PID) { // 0x0011
+            pkt += pktLen;
+            continue;
         }
+
+        unsigned char pusi = (pkt[1] & 0x40) >> 6;
+        unsigned char afc = (pkt[3] & 0x30) >> 4;
+        int header_len = 4;
+
+        if (afc == 2) { pkt += pktLen; continue; }
+        if (afc == 3) header_len += pkt[4] + 1;
         
-        es = es->next;
-        count++;
+        unsigned char *payload = pkt + header_len;
+        int payload_len = pktLen - header_len;
+
+        if (pusi) {
+            int pointer = payload[0];
+            payload += pointer + 1;
+            payload_len -= pointer + 1;
+            sec_pos = 0;
+        }
+
+        if (sec_pos < 3 && payload_len > 0) {
+            int need = 3 - sec_pos;
+            if (need > payload_len) need = payload_len;
+            memcpy(sec_buf + sec_pos, payload, need);
+            sec_pos += need;
+            payload += need;
+            payload_len -= need;
+
+            if (sec_pos >= 3) {
+                sec_len = (((sec_buf[1] & 0x0F) << 8) | sec_buf[2]) + 3;
+            }
+        }
+
+        if (sec_len > 0 && sec_pos < sec_len && payload_len > 0) {
+            int copy = sec_len - sec_pos;
+            if (copy > payload_len) copy = payload_len;
+            memcpy(sec_buf + sec_pos, payload, copy);
+            sec_pos += copy;
+        }
+
+        if (sec_len > 0 && sec_pos >= sec_len) {
+            // SDT Table ID: 0x42 (Actual TS)
+            if ((sec_buf[0] == 0x42) || (sec_buf[0] == 0x46)){
+                return sdt_parse_section(sec_buf);
+            }
+            sec_pos = 0;
+        }
+        pkt += pktLen;
     }
-
-    // 4. 메모리 해제 (구조체 멤버인 es_data와 desc를 모두 해제해야 함)
-    pmt_free_section(pmt);
-
-    return 0x0;
+    return NULL;
 }
 
 /*-----------------------------------------------------------------------------
@@ -293,123 +402,196 @@ unsigned short pmt_parse(unsigned char *p, scan_service_t *services)
 *
 *
 *---------------------------------------------------------------------------*/
-void scan_channel(unsigned long dscr) 
+scan_service_t* create_service(unsigned short program_number, unsigned short pmt_pid)
 {
-    unsigned char *p = (unsigned char *)dscr;
-	unsigned short ch_count = 0, result = 0;
-	dvb_scan_result_t *scan = NULL;
-	int idx = 0;
+    scan_service_t *svc = (scan_service_t*)calloc(1, sizeof(scan_service_t));
+    if(!svc) return NULL;
 
-	scan = (dvb_scan_result_t *)malloc(sizeof(dvb_scan_result_t));
-	if(scan == NULL)
-	{
-		Print("Memory allocation failed\n");
-		return;
-	}
+    svc->program_number = program_number;
+    svc->pmt_pid = pmt_pid;
+    svc->pcr_pid = 0xFFFF;
 
-	memset(scan, 0x0, sizeof(dvb_scan_result_t));
+    svc->is_scanned = 0;
+    svc->service_type = 0;
 
-	// PAT 파싱 함수 호출
-	ch_count = pat_parse(p, scan);
-	if((ch_count > 0) && (ch_count != 0xFFFF))
-	{
-		Print("==============================\n");
-		Print("SCAN Channel (PAT)\n");
-		Print(" ch num    : %d, %d\n", scan->total_services, ch_count);
-		Print(" TS_ID     : 0x%04x\n", scan->ts_id);
+    svc->streams = NULL;
+    svc->next = NULL;
 
-		if(scan->total_services != 0)
-		{
-			Print("\n%-8s | %-12s | %-10s\n", "Index", "Program ID", "PMT PID");
-			Print("------------------------------------------\n");
+    return svc;
+}
 
-			idx = 0;
-			do{
-				// program_id가 0x0000인 경우는 보통 NIT 테이블을 가리키므로 예외 처리하거나 구분하여 출력
-				Print("%-8d | 0x%04X       | 0x%04X\n", 
-					  idx, 
-					  scan->services[idx].program_number, 
-					  scan->services[idx].pmt_pid);
-				idx++;
-			}while(idx < scan->total_services);
-			
-			Print("------------------------------------------\n");
+/*-----------------------------------------------------------------------------
+*
+*
+*
+*---------------------------------------------------------------------------*/
+void add_service(dvb_scan_result_t *scan, scan_service_t *svc)
+{
+    if(!scan->services)
+    {
+        scan->services = svc;
+    }
+    else
+    {
+        scan_service_t *cur = scan->services;
 
-			// PMT 파싱 함수 호출
-			// PMT 파싱 및 출력 루프
-			Print("\n%-8s | %-12s | %-10s\n", "Index", "Program ID", "PCR PID");
-			Print("------------------------------------------\n");
-			
-			scan_service_t *curr = scan->services;
-			int idx = 0;
-			while (curr != NULL)
-			{
-				// 1. PID 검색 (PAT에서 얻은 PMT PID 사용)
-				unsigned char *pmt_packet = find_packet_by_pid(p, curr->pmt_pid);
-				
-				if (pmt_packet != NULL && curr->program_number != 0x0000)
-				{
-					unsigned char pointer_field = pmt_packet[4]; 
-					unsigned char *section_data = &pmt_packet[4 + 1 + pointer_field];
-			
-					// 2. PMT 파싱 수행
-					result = pmt_parse(section_data, curr);
-					if(result != 0xFFFF)
-					{
-						// 표 형식 출력
-						Print("%-8d | 0x%04X	   | 0x%04X\n", 
-							  idx, curr->program_number, curr->pcr_pid);
-						
-						// 스트림 정보가 있다면 상세 출력
-						if (curr->streams != NULL)
-						{
-							stream_info_t *es = curr->streams;
-							int es_idx = 0;
-							while (es != NULL)
-							{
-								// 스트림 타입에 따른 이름 표시 (디버깅 편의성) 
-								const char *type_name = "Unknown";
-								if (es->stream_type == ES_H264_VIDEO) type_name = "H.264 Video";
-								else if (es->stream_type == ES_PRIVATE_PES) type_name = "Audio/Data";
-								else if (es->stream_type == ES_MPEG1_AUDIO) type_name = "MPEG Audio";
-								
-								Print(" [ES %d] Type: 0x%02X (%-12s), PID: 0x%04X\n", es_idx, es->stream_type, type_name, es->elementary_pid);
-								es_idx++;
-								es = es->next;
-							}
+        while(cur->next)
+        {
+            cur = cur->next;
+        }
+
+        cur->next = svc;
+    }
+
+    scan->total_services++;
+}
+
+/*-----------------------------------------------------------------------------
+* PMT 정보를 바탕으로 서비스 구조체에 스트림(Video/Audio) 정보
+*
+*
+*---------------------------------------------------------------------------*/
+void update_service_with_pmt(scan_service_t *svc, pmt_section_t *pmt)
+{
+    if (!svc || !pmt) return;
+
+    svc->pcr_pid = pmt->pcr_pid;
+    pmt_es_data_t *es = pmt->es_data;
+
+    while (es) {
+        stream_info_t *stream = (stream_info_t*)calloc(1, sizeof(stream_info_t));
+        if (stream) {
+            stream->stream_type = es->stream_type;
+            stream->elementary_pid = es->elem_pid;
+            
+            // 리스트 하단에 추가
+            if (!svc->streams) {
+                svc->streams = stream;
+            } else {
+                stream_info_t *curr = svc->streams;
+                while (curr->next) curr = curr->next;
+                curr->next = stream;
+            }
+        }
+        es = es->next;
+    }
+    svc->is_scanned = 1;
+}
+
+/*-----------------------------------------------------------------------------
+* SDT 섹션 정보를 바탕으로 각 서비스의 실제 채널 이름을 업데이트
+*
+*
+*---------------------------------------------------------------------------*/
+void update_service_name_from_sdt(dvb_scan_result_t *scan, sdt_section_t *sdt)
+{
+	if (!scan || !sdt) return;
+
+	sdt_service_data_t *sdt_svc = sdt->svc_data;
+	while (sdt_svc) {
+		scan_service_t *curr_svc = scan->services;
+		while (curr_svc) {
+			if (curr_svc->program_number == sdt_svc->service_id) {
+				descriptor_t *desc = sdt_svc->desc;
+				while (desc) {
+					if (desc->tag == 0x48) {
+						service_desc_t *svc_desc = (service_desc_t *)desc->data;
+						if (svc_desc && svc_desc->service_name_len > 0) {
+							memset(curr_svc->service_name, 0, sizeof(curr_svc->service_name));
+							int copy_len = (svc_desc->service_name_len < (int)sizeof(curr_svc->service_name) - 1) ? 
+											svc_desc->service_name_len : (int)sizeof(curr_svc->service_name) - 1;
+							memcpy(curr_svc->service_name, svc_desc->service_name, copy_len);
+							curr_svc->service_name[copy_len] = '\0';
 						}
+						break;
 					}
+					desc = desc->next;
 				}
-				curr = curr->next; // 다음 채널로 이동
-				idx++;
+				break;
 			}
-			Print("------------------------------------------\n");
+			curr_svc = curr_svc->next;
 		}
+		sdt_svc = sdt_svc->next;
 	}
+}
 
-	// 수정된 해제 로직
-	scan_service_t *curr_services = scan->services;
-	while(curr_services != NULL)
-	{
-		scan_service_t *next_services = curr_services->next;
+/*-----------------------------------------------------------------------------
+*
+*
+*
+*---------------------------------------------------------------------------*/
+void free_scan_results(dvb_scan_result_t *scan)
+{
+	if (scan == NULL) return;
+
+	scan_service_t *svc = scan->services;
+	while (svc) {
+		scan_service_t *next_svc = svc->next;
 		
-		// 1. 해당 채널의 스트림 리스트 먼저 해제
-		stream_info_t *curr_stream_info = curr_services->streams;
-		while(curr_stream_info != NULL)
-		{
-			stream_info_t *next_stream_info = curr_stream_info->next;
-			
-			free(curr_stream_info);
-			curr_stream_info = next_stream_info; // [수정] 올바른 다음 스트림으로 이동
+		// 1. 스트림 리스트 먼저 해제
+		stream_info_t *s = svc->streams;
+		while (s) {
+			stream_info_t *next_s = s->next;
+			void *ptr_s = (void *)s;
+			Safe_Free(&ptr_s); 
+			s = next_s;
 		}
 		
 		// 2. 서비스 노드 해제
-		free(curr_services);
-		curr_services = next_services;
+		void *ptr_svc = (void *)svc;
+		Safe_Free(&ptr_svc);
+		svc = next_svc;
 	}
 
-	free(scan);
-	scan = NULL;
+	scan->services = NULL;
+	scan->total_services = 0;
+}
+
+/*-----------------------------------------------------------------------------
+*
+*
+*
+*---------------------------------------------------------------------------*/
+void scan_channel(void) 
+{
+	if (!dvb_scan.buf) return;
+	unsigned char *p = dvb_scan.buf;
+	size_t file_size = dvb_scan.size;
+	
+	pat_section_t *pat = dvb_get_pat(p, file_size);
+	if(pat) {
+		pat_program_data_t *prog = pat->prog_data;
+		dvb_scan.scan.ts_id = pat->ts_id;
+
+		while(prog) {
+			scan_service_t *svc = create_service(prog->program_number, prog->pmt_pid);
+			if(svc) add_service(&dvb_scan.scan, svc);
+			prog = prog->next;
+		}
+		pat_free_section(pat);
+		print_scan_pat_services(&dvb_scan.scan);
+		
+		scan_service_t *curr_svc = dvb_scan.scan.services;
+		while (curr_svc) {
+			pmt_section_t *pmt = dvb_get_pmt(p, file_size, curr_svc->pmt_pid);
+			if (pmt) {
+				update_service_with_pmt(curr_svc, pmt);
+				print_scan_pmt_services(curr_svc);
+				pmt_free_section(pmt);
+			}
+			curr_svc = curr_svc->next;
+		}
+
+		sdt_section_t *sdt = dvb_get_sdt(p, file_size);
+		if (sdt) {
+			update_service_name_from_sdt(&dvb_scan.scan, sdt);
+			sdt_free_section(sdt);
+		}
+		
+		print_final_scan_results(&dvb_scan.scan);
+	}
+	
+	free_scan_results(&dvb_scan.scan);
 }
 
 /*-----------------------------------------------------------------------------
@@ -419,51 +601,32 @@ void scan_channel(unsigned long dscr)
 *---------------------------------------------------------------------------*/
 void open_channel_file(const char *file_name) 
 {
-	FILE *fp = NULL;
-	unsigned char *buffer = NULL;
-	long fileSize = 0;
+	memset(&dvb_scan, 0x0, sizeof(dvb_scan_t));
 
-	// 1. TS 파일 열기
-	fp = fopen(file_name, "rb"); // 읽기 전용 바이너리 모드
-	if (!fp)
-	{
-		Print("Failed to open %s\n", file_name);
-		return;
-	}
-
-	// 2. 파일 크기 계산
-	fseek(fp, 0, SEEK_END);
-	fileSize = ftell(fp);
-	rewind(fp);
-
-	// 3. 파일 크기만큼 메모리 할당
-	buffer = (unsigned char *)malloc(fileSize);
-	if (!buffer)
-	{
-		Print("Memory allocation failed\n");
-		fclose(fp);
-		return;
-	}
-
-	// 4. 파일 데이터 읽기
-	if (fread(buffer, 1, fileSize, fp) != (size_t)fileSize)
-	{
-		Print("Failed to read file\n");
-		free(buffer);
-		fclose(fp);
-		return;
-	}
-	fclose(fp);
-
-	gfileSize = fileSize;
+	dvb_scan.fp = File_Open(file_name, "rb");
+	if(!dvb_scan.fp) return;
 	
-	// 5. 메모리 주소를 unsigned long으로 변환하여 전달
-	unsigned long dscr = (unsigned long)buffer;
-	Print("TS File loaded at address: 0x%lX, Size: %ld bytes\n", dscr, fileSize);
+	dvb_scan.size = File_GetSize(dvb_scan.fp);
+	if(dvb_scan.size <= 0) {
+		File_Close(dvb_scan.fp);
+		return;
+	}
 
-	scan_channel(dscr);
+	dvb_scan.buf = (unsigned char *)Safe_Malloc(dvb_scan.size);
+	if (!dvb_scan.buf) {
+		File_Close(dvb_scan.fp);
+		return;
+	}
+
+	if (File_Read(dvb_scan.fp, dvb_scan.buf, dvb_scan.size) != 0) {
+		Safe_Free((void**)&dvb_scan.buf);
+		File_Close(dvb_scan.fp);
+		return;
+	}
 	
-	// 6. 사용 후 메모리 해제
-	free(buffer);
+	File_Close(dvb_scan.fp);
+	scan_channel();
+	
+	if (dvb_scan.buf) Safe_Free((void**)&dvb_scan.buf);
 }
 
