@@ -21,6 +21,7 @@
 #include "pat.h"
 #include "pmt.h"
 #include "sdt.h"
+#include "nit.h"
 #include "tdt.h"
 #include "tot.h"
 
@@ -36,6 +37,7 @@
 *
 *
 *---------------------------------------------------------------------------*/
+#define MAX_SECTION   		  					8
 #define MAX_SECTION_BUF_SIZE  					4096
 
 /*-----------------------------------------------------------------------------
@@ -50,6 +52,8 @@
 *
 *---------------------------------------------------------------------------*/
 static dvb_scan_t dvb_scan;
+
+static unsigned char *sections[MAX_SECTION] = {NULL,}; 
 
 /******************************************************************************
 *
@@ -82,6 +86,112 @@ void mjd_to_date(unsigned short mjd, int *year, int *month, int *day)
 
     // Y를 1900년 기준으로 변환 (DVB MJD는 1858년 11월 17일 시작)
     *year += 1900; 
+}
+
+/*-----------------------------------------------------------------------------
+*
+*
+*
+*---------------------------------------------------------------------------*/
+const char* get_stream_type_name(unsigned char type)
+{
+    switch (type) {
+        case ES_MPEG1_VIDEO: return "MPEG-1 Video";
+        case ES_MPEG2_VIDEO: return "MPEG-2 Video";
+        case ES_MPEG1_AUDIO: return "MPEG-1 Audio";
+        case ES_MPEG2_AUDIO: return "MPEG-2 Audio";
+        case ES_PRIVATE_PES: return "Teletext/Data";
+        case ES_AAC_AUDIO: return "AAC ADTS";
+        case ES_MPEG4_PART2_VIDEO: return "MPEG-4 Video";
+        case ES_14496_3_AUDIO_LATM: return "AAC LATM";
+        case ES_H264_VIDEO: return "H.264 AVC";
+        case ES_HEVC_VIDEO: return "H.265 HEVC";
+        case ES_AC3_AUDIO: return "AC-3 Audio";
+        default:   return "Unknown";
+    }
+}
+
+/*-----------------------------------------------------------------------------
+*
+*
+*
+*---------------------------------------------------------------------------*/
+scan_service_t* create_service(unsigned short program_number, unsigned short pmt_pid)
+{
+    scan_service_t *svc = (scan_service_t*)calloc(1, sizeof(scan_service_t));
+    if(!svc) return NULL;
+
+    svc->program_number = program_number;
+    svc->pmt_pid = pmt_pid;
+    svc->pcr_pid = 0xFFFF;
+
+    svc->is_scanned = 0;
+    svc->service_type = 0;
+
+    svc->streams = NULL;
+    svc->next = NULL;
+
+    return svc;
+}
+
+/*-----------------------------------------------------------------------------
+*
+*
+*
+*---------------------------------------------------------------------------*/
+void add_service(dvb_scan_result_t *scan, scan_service_t *svc)
+{
+    if(!scan->services)
+    {
+        scan->services = svc;
+    }
+    else
+    {
+        scan_service_t *cur = scan->services;
+
+        while(cur->next)
+        {
+            cur = cur->next;
+        }
+
+        cur->next = svc;
+    }
+
+    scan->total_services++;
+}
+
+/*-----------------------------------------------------------------------------
+*
+*
+*
+*---------------------------------------------------------------------------*/
+void free_service(dvb_scan_result_t *scan)
+{
+	if (scan == NULL) return;
+
+	scan_service_t *svc = scan->services;
+	while (svc) 
+	{
+		scan_service_t *next_svc = svc->next;
+		
+		// 1. 스트림 리스트 먼저 해제
+		stream_info_t *s = svc->streams;
+		while (s)
+		{
+			stream_info_t *next_s = s->next;
+			void *ptr_s = (void *)s;
+			Safe_Free(&ptr_s); 
+			s = next_s;
+		}
+		
+		// 2. 서비스 노드 해제
+		void *ptr_svc = (void *)svc;
+		Safe_Free(&ptr_svc);
+		svc = next_svc;
+	}
+
+	scan->services = NULL;
+	scan->total_services = 0;
 }
 
 /*-----------------------------------------------------------------------------
@@ -160,13 +270,22 @@ void print_final_scan_results(dvb_scan_result_t *scan)
                svc->pmt_pid);
         
         // 상세 스트림 정보(비디오/오디오 PID)까지 보고 싶다면 아래 주석 해제
-        /*
-        stream_info_t *s = svc->streams;
-        while(s) {
-            Print("    -> Stream Type: 0x%02X, PID: 0x%04X\n", s->stream_type, s->elementary_pid);
-            s = s->next;
-        }
-        */
+		// 스트림 정보 출력 루프 수정	 
+		stream_info_t *stream = svc->streams;
+		while (stream)
+		{
+			const char* type_str = get_stream_type_name(stream->stream_type); // 타입 이름 변환 함수가 있다면 활용
+			// [수정 포인트] 간격을 맞추기 위해 필드 폭 지정 (%-12s, %04X 등)
+			Print("	 L [Stream] Type: 0x%02X (%-10s) | PID: 0x%04X (%4d)\n",
+					stream->stream_type,
+					type_str ? type_str : "Unknown",
+					stream->elementary_pid,
+					stream->elementary_pid);
+
+			stream = stream->next;
+		}
+
+		Print("--------------------------------------------------\n");
 
         svc = svc->next;
     }
@@ -195,336 +314,246 @@ void print_time_of_change(unsigned char *toc)
 }
 
 /*-----------------------------------------------------------------------------
-* PAT(Program Association Table)
+*
 *
 *
 *---------------------------------------------------------------------------*/
-pat_section_t* dvb_get_pat(unsigned char *ts, size_t size)
+void dvb_free_section(void)
 {
-	int pktLen = detect_packet_len(ts);
-	unsigned char sec_buf[MAX_SECTION_BUF_SIZE];
-	int sec_pos = 0;
-	int sec_len = 0;
-	unsigned char *pkt = ts;
-
-	Print("[PAT_SCAN] Start Scanning. FileSize: %ld, PacketLen: %d\n", size, pktLen);
-
-	while (pkt < (ts + size))
+	int sec = 0;
+	
+	while((sections[sec] != NULL) && (sec < MAX_SECTION))
 	{
-		if (pkt[0] != TS_SYNC_BYTE) {
-			pkt++;
-			continue;
-		}
+		free(sections[sec]);
+		sections[sec] = NULL;
+		sec++;
+	}
+}
 
-		unsigned short pid = ((pkt[1] & 0x1F) << 8) | pkt[2];
-		if (pid != PAT_PID) {
-			pkt += pktLen;
-			continue;
-		}
+/*-----------------------------------------------------------------------------
+* This function is equivalent to requesting section data for a specific PID via the demux filter.
+*
+*
+*---------------------------------------------------------------------------*/
+void dvb_get_section(unsigned char *ts, size_t size, unsigned short flt_pid)
+{
+    int pktLen = detect_packet_len(ts);
 
-		unsigned char pusi = (pkt[1] & 0x40) >> 6;
-		unsigned char afc = (pkt[3] & 0x30) >> 4;
-		int header_len = 4;
+    unsigned char sec_buf[MAX_SECTION_BUF_SIZE];
 
-		if (afc == 2) { // Adaptation Field only
-			pkt += pktLen;
-			continue;
-		}
+    int section_received[MAX_SECTION];
+    int last_section_number = -1;
+    int received_count = 0;
 
-		if (afc == 3) { // Adaptation Field + Payload
-			header_len += pkt[4] + 1;
-		}
+    int sec_pos = 0;
+    int sec_len = 0;
 
-		if (header_len >= pktLen) { // 잘못된 헤더 길이 방어
-			pkt += pktLen;
-			continue;
-		}
+    unsigned char *pkt = ts;
 
-		unsigned char *payload = pkt + header_len;
-		int payload_len = pktLen - header_len;
+    dvb_free_section();
 
-		// PUSI가 1이면 새로운 섹션이 시작됨
-		if (pusi) {
-			int pointer = payload[0];
-			if (pointer + 1 > payload_len) { // pointer_field 오류 방어
+    memset(sec_buf, 0, sizeof(sec_buf));
+    memset(section_received, 0, sizeof(section_received));
+
+    Print("\r\ndvb_get_section (filter pid 0x%04x)\n", flt_pid);
+
+    while (pkt < (ts + size))
+    {
+        if (pkt[0] != TS_SYNC_BYTE) {
+            pkt++;
+            continue;
+        }
+
+		if (flt_pid == TDT_PID)
+		{
+			unsigned short pid = ((pkt[1] & 0x1F) << 8) | pkt[2];
+			if (pid != flt_pid) {
 				pkt += pktLen;
 				continue;
 			}
-			payload += pointer + 1;
-			payload_len -= pointer + 1;
-			sec_pos = 0;
-			sec_len = 0;
-			Print("[PAT_SCAN] New Section Started (PUSI=1)\n");
-		}
-
-		// 섹션 헤더(3바이트: table_id + length) 수집
-		if (sec_pos < 3 && payload_len > 0) {
-			int need = 3 - sec_pos;
-			if (need > payload_len) need = payload_len;
-
-			memcpy(sec_buf + sec_pos, payload, need);
-			sec_pos += need;
-			payload += need;
-			payload_len -= need;
-
-			if (sec_pos >= 3) {
-				sec_len = (((sec_buf[1] & 0x0F) << 8) | sec_buf[2]) + 3;
-				if (sec_len > (int)sizeof(sec_buf)) {
-					Print("[PAT_ERR] Section too large: %d\n", sec_len);
-					return NULL;
-				}
+			
+			unsigned char pusi = (pkt[1] & 0x40) >> 6;
+			unsigned char afc = (pkt[3] & 0x30) >> 4;
+			
+			if (afc == 2) { pkt += pktLen; continue; }
+			int header_len = (afc == 3) ? (4 + pkt[4] + 1) : 4;
+			
+			unsigned char *payload = pkt + header_len;
+			int payload_len = pktLen - header_len;
+			
+			if (pusi) {
+				int pointer = payload[0];
+				payload += pointer + 1;
+				payload_len -= pointer + 1;
+				sec_pos = 0;
 			}
+
+	        if (sec_pos < 3 && payload_len > 0) {
+	            int need = 3 - sec_pos;
+	            if (need > payload_len) need = payload_len;
+	            memcpy(sec_buf + sec_pos, payload, need);
+	            sec_pos += need;
+	            payload += need;
+	            payload_len -= need;
+
+	            if (sec_pos >= 3) {
+	                sec_len = (((sec_buf[1] & 0x0F) << 8) | sec_buf[2]) + 3;
+	            }
+	        }
+
+	        if (sec_len > 0 && sec_pos < sec_len && payload_len > 0) {
+	            int copy = sec_len - sec_pos;
+	            if (copy > payload_len) copy = payload_len;
+	            memcpy(sec_buf + sec_pos, payload, copy);
+	            sec_pos += copy;
+	        }
+
+	        if (sec_len > 0 && sec_pos >= sec_len) {
+				if ((sec_buf[0] == TDT_TID) || (sec_buf[0] == TOT_TID)){
+					int sec_num = 0;
+					last_section_number = 0;
+					sections[sec_num] = malloc(sec_len);
+					
+					if (sections[sec_num] != NULL)
+					{
+						memcpy(sections[sec_num], sec_buf, sec_len);
+					
+						section_received[sec_num] = 1;
+						received_count++;
+					
+						Print("SECTION STORED %d\n", sec_num);
+					}
+
+					if (last_section_number >= 0 &&
+						received_count >= (last_section_number + 1))
+					{
+						Print("Received all sections\n");
+						return;
+					}
+				}
+
+	            sec_pos = 0;
+	        }
+		}
+		else
+		{
+			unsigned short pid = ((pkt[1] & 0x1F) << 8) | pkt[2];
+			if (pid != (flt_pid & ~0x2000)) {
+				pkt += pktLen;
+				continue;
+			}
+			
+			unsigned char pusi = (pkt[1] & 0x40) >> 6;
+			unsigned char afc = (pkt[3] & 0x30) >> 4;
+			
+			int header_len = 4;
+
+			if (afc == 2) { pkt += pktLen; continue; }
+			if (afc == 3) header_len += pkt[4] + 1;
+
+			unsigned char *payload = pkt + header_len;
+			int payload_len = pktLen - header_len;
+			
+			if (payload_len <= 0) {
+				pkt += pktLen;
+				continue;
+			}
+			
+			if (pusi)
+			{
+				int pointer = payload[0];
+				payload += pointer + 1;
+				payload_len -= pointer + 1;
+			
+				sec_pos = 0;
+				sec_len = 0;
+			}
+
+        	while (payload_len > 0)
+	        {
+	            /* header (3 bytes) */
+	            if (sec_pos < 3)
+	            {
+	                int need = 3 - sec_pos;
+	                int copy = payload_len < need ? payload_len : need;
+
+	                memcpy(sec_buf + sec_pos, payload, copy);
+
+	                sec_pos += copy;
+	                payload += copy;
+	                payload_len -= copy;
+
+	                if (sec_pos < 3)
+	                    break;
+
+					if (sec_pos == 3)
+					{
+						sec_len = (((sec_buf[1] & 0x0F) << 8) | sec_buf[2]) + 3;
+		                if (sec_len < 3 || sec_len > MAX_SECTION_BUF_SIZE)
+		                {
+							Print("Invalid section length: %d\n", sec_len);
+		                    sec_pos = 0;
+		                    sec_len = 0;
+		                    break;
+		                }
+					}
+	            }
+
+	            /* body */
+	            if (sec_pos >= 3 && sec_len > 0)
+	            {
+	                int remain = sec_len - sec_pos;
+	                int copy = payload_len < remain ? payload_len : remain;
+
+	                memcpy(sec_buf + sec_pos, payload, copy);
+
+	                sec_pos += copy;
+	                payload += copy;
+	                payload_len -= copy;
+	            }
+
+	            /* section complete */
+	            if (sec_len > 0 && sec_pos >= sec_len)
+	            {
+					int sec_num = 0;
+
+					sec_num = sec_buf[6];
+					last_section_number = sec_buf[7];
+
+	                Print("section %d / last %d\n", sec_num, last_section_number);
+
+	                if (sec_num < MAX_SECTION &&
+	                    !section_received[sec_num])
+	                {
+	                    sections[sec_num] = malloc(sec_len);
+
+	                    if (sections[sec_num] != NULL)
+	                    {
+	                        memcpy(sections[sec_num], sec_buf, sec_len);
+
+	                        section_received[sec_num] = 1;
+	                        received_count++;
+
+	                        Print("SECTION STORED %d\n", sec_num);
+	                    }
+	                }
+
+	                if (last_section_number >= 0 &&
+	                    received_count >= (last_section_number + 1))
+	                {
+	                    Print("Received all sections\n");
+	                    return;
+	                }
+
+	                /* prepare next section */
+	                sec_pos = 0;
+	                sec_len = 0;
+	            }
+	        }
 		}
 
-		// 나머지 데이터 수집
-		if (sec_len > 0 && sec_pos < sec_len && payload_len > 0) {
-			int copy = sec_len - sec_pos;
-			if (copy > payload_len) copy = payload_len;
-
-			memcpy(sec_buf + sec_pos, payload, copy);
-			sec_pos += copy;
-		}
-
-		// 섹션 조립 완료 확인
-		if (sec_len > 0 && sec_pos >= sec_len) {
-			Print("[PAT_SCAN] Section Reassembled. TableID: 0x%02X, TotalLen: %d\n", sec_buf[0], sec_len);
-			return pat_parse_section(sec_buf); // 파싱 및 반환
-		}
-
-		pkt += pktLen;
-	}
-
-	Print("[PAT_SCAN] PAT not found or Incomplete.\n");
-	return NULL;
-}
-
-/*-----------------------------------------------------------------------------
-* PMT(Program Map Table)
-*
-*
-*---------------------------------------------------------------------------*/
-pmt_section_t* dvb_get_pmt(unsigned char *ts, size_t size, unsigned short target_pid)
-{
-    int pktLen = detect_packet_len(ts);
-    unsigned char sec_buf[MAX_SECTION_BUF_SIZE];
-    int sec_pos = 0;
-    int sec_len = 0;
-    unsigned char *pkt = ts;
-
-    while (pkt < (ts + size))
-    {
-        if (pkt[0] != TS_SYNC_BYTE) {
-            pkt++;
-            continue;
-        }
-
-        unsigned short pid = ((pkt[1] & 0x1F) << 8) | pkt[2];
-        if (pid != target_pid) {
-            pkt += pktLen;
-            continue;
-        }
-
-        unsigned char pusi = (pkt[1] & 0x40) >> 6;
-        unsigned char afc = (pkt[3] & 0x30) >> 4;
-        int header_len = 4;
-
-        if (afc == 2) { pkt += pktLen; continue; }
-        if (afc == 3) header_len += pkt[4] + 1;
-        if (header_len >= pktLen) { pkt += pktLen; continue; }
-
-        unsigned char *payload = pkt + header_len;
-        int payload_len = pktLen - header_len;
-
-        if (pusi) {
-            int pointer = payload[0];
-            if (pointer + 1 > payload_len) { pkt += pktLen; continue; }
-            payload += pointer + 1;
-            payload_len -= pointer + 1;
-            sec_pos = 0;
-        }
-
-        // 섹션 헤더 수집 (3바이트)
-        if (sec_pos < 3 && payload_len > 0) {
-            int need = 3 - sec_pos;
-            if (need > payload_len) need = payload_len;
-            memcpy(sec_buf + sec_pos, payload, need);
-            sec_pos += need;
-            payload += need;
-            payload_len -= need;
-
-            if (sec_pos >= 3) {
-                sec_len = (((sec_buf[1] & 0x0F) << 8) | sec_buf[2]) + 3;
-            }
-        }
-
-        // 데이터 수집
-        if (sec_len > 0 && sec_pos < sec_len && payload_len > 0) {
-            int copy = sec_len - sec_pos;
-            if (copy > payload_len) copy = payload_len;
-            memcpy(sec_buf + sec_pos, payload, copy);
-            sec_pos += copy;
-        }
-
-        if (sec_len > 0 && sec_pos >= sec_len) {
-            // Table ID 0x02가 PMT임을 확인
-            if (sec_buf[0] == PMT_TID) {
-                return pmt_parse_section(sec_buf);
-            }
-            sec_pos = 0; // 다른 테이블일 경우 초기화 후 계속 검색
-        }
         pkt += pktLen;
     }
-    return NULL;
-}
-
-/*-----------------------------------------------------------------------------
-* SDT(Service Description Table)
-*
-*
-*---------------------------------------------------------------------------*/
-sdt_section_t* dvb_get_sdt(unsigned char *ts, size_t size)
-{
-    int pktLen = detect_packet_len(ts);
-    unsigned char sec_buf[MAX_SECTION_BUF_SIZE];
-    int sec_pos = 0;
-    int sec_len = 0;
-    unsigned char *pkt = ts;
-
-    while (pkt < (ts + size))
-    {
-        if (pkt[0] != TS_SYNC_BYTE) {
-            pkt++;
-            continue;
-        }
-
-        unsigned short pid = ((pkt[1] & 0x1F) << 8) | pkt[2];
-        if (pid != SDT_PID) { // 0x0011
-            pkt += pktLen;
-            continue;
-        }
-
-        unsigned char pusi = (pkt[1] & 0x40) >> 6;
-        unsigned char afc = (pkt[3] & 0x30) >> 4;
-        int header_len = 4;
-
-        if (afc == 2) { pkt += pktLen; continue; }
-        if (afc == 3) header_len += pkt[4] + 1;
-        
-        unsigned char *payload = pkt + header_len;
-        int payload_len = pktLen - header_len;
-
-        if (pusi) {
-            int pointer = payload[0];
-            payload += pointer + 1;
-            payload_len -= pointer + 1;
-            sec_pos = 0;
-        }
-
-        if (sec_pos < 3 && payload_len > 0) {
-            int need = 3 - sec_pos;
-            if (need > payload_len) need = payload_len;
-            memcpy(sec_buf + sec_pos, payload, need);
-            sec_pos += need;
-            payload += need;
-            payload_len -= need;
-
-            if (sec_pos >= 3) {
-                sec_len = (((sec_buf[1] & 0x0F) << 8) | sec_buf[2]) + 3;
-            }
-        }
-
-        if (sec_len > 0 && sec_pos < sec_len && payload_len > 0) {
-            int copy = sec_len - sec_pos;
-            if (copy > payload_len) copy = payload_len;
-            memcpy(sec_buf + sec_pos, payload, copy);
-            sec_pos += copy;
-        }
-
-        if (sec_len > 0 && sec_pos >= sec_len) {
-            // SDT Table ID: 0x42 (Actual TS)
-            if ((sec_buf[0] == SDT_A_TID) || (sec_buf[0] == SDT_O_TID)){
-                return sdt_parse_section(sec_buf);
-            }
-            sec_pos = 0;
-        }
-        pkt += pktLen;
-    }
-    return NULL;
-}
-
-/*-----------------------------------------------------------------------------
-* TDT(Time and Date Table)
-*
-*
-*---------------------------------------------------------------------------*/
-tdt_section_t* dvb_get_tdt(unsigned char *ts, size_t size)
-{
-    int pktLen = detect_packet_len(ts);
-    unsigned char sec_buf[MAX_SECTION_BUF_SIZE];
-    int sec_pos = 0;
-    int sec_len = 0;
-    unsigned char *pkt = ts;
-
-    while (pkt < (ts + size))
-    {
-        if (pkt[0] != TS_SYNC_BYTE) {
-            pkt++;
-            continue;
-        }
-
-        unsigned short pid = ((pkt[1] & 0x1F) << 8) | pkt[2];
-        if (pid != TDT_PID) {
-            pkt += pktLen;
-            continue;
-        }
-
-        unsigned char pusi = (pkt[1] & 0x40) >> 6;
-        unsigned char afc = (pkt[3] & 0x30) >> 4;
-        int header_len = 4;
-
-        if (afc == 2) { pkt += pktLen; continue; }
-        if (afc == 3) header_len += pkt[4] + 1;
-        
-        unsigned char *payload = pkt + header_len;
-        int payload_len = pktLen - header_len;
-
-        if (pusi) {
-            int pointer = payload[0];
-            payload += pointer + 1;
-            payload_len -= pointer + 1;
-            sec_pos = 0;
-        }
-
-        if (sec_pos < 3 && payload_len > 0) {
-            int need = 3 - sec_pos;
-            if (need > payload_len) need = payload_len;
-            memcpy(sec_buf + sec_pos, payload, need);
-            sec_pos += need;
-            payload += need;
-            payload_len -= need;
-
-            if (sec_pos >= 3) {
-                sec_len = (((sec_buf[1] & 0x0F) << 8) | sec_buf[2]) + 3;
-            }
-        }
-
-        if (sec_len > 0 && sec_pos < sec_len && payload_len > 0) {
-            int copy = sec_len - sec_pos;
-            if (copy > payload_len) copy = payload_len;
-            memcpy(sec_buf + sec_pos, payload, copy);
-            sec_pos += copy;
-        }
-
-        if (sec_len > 0 && sec_pos >= sec_len) {
-            // TDT Table ID: 0x70
-            if (sec_buf[0] == TDT_TID){
-                return tdt_parse_section(sec_buf);
-            }
-            sec_pos = 0;
-        }
-        pkt += pktLen;
-    }
-    return NULL;
 }
 
 /*-----------------------------------------------------------------------------
@@ -535,7 +564,7 @@ tdt_section_t* dvb_get_tdt(unsigned char *ts, size_t size)
 tot_section_t* dvb_get_tot(unsigned char *ts, size_t size)
 {
     int pktLen = detect_packet_len(ts);
-    unsigned char sec_buf[MAX_SECTION_BUF_SIZE];
+	unsigned char sec_buf[MAX_SECTION_BUF_SIZE];
     int sec_pos = 0;
     int sec_len = 0;
     unsigned char *pkt = ts;
@@ -603,52 +632,45 @@ tot_section_t* dvb_get_tot(unsigned char *ts, size_t size)
 }
 
 /*-----------------------------------------------------------------------------
-*
-*
-*
-*---------------------------------------------------------------------------*/
-scan_service_t* create_service(unsigned short program_number, unsigned short pmt_pid)
-{
-    scan_service_t *svc = (scan_service_t*)calloc(1, sizeof(scan_service_t));
-    if(!svc) return NULL;
-
-    svc->program_number = program_number;
-    svc->pmt_pid = pmt_pid;
-    svc->pcr_pid = 0xFFFF;
-
-    svc->is_scanned = 0;
-    svc->service_type = 0;
-
-    svc->streams = NULL;
-    svc->next = NULL;
-
-    return svc;
-}
-
-/*-----------------------------------------------------------------------------
-*
+* PAT 정보를 바탕으로 서비스 구조체 업데이트
 *
 *
 *---------------------------------------------------------------------------*/
-void add_service(dvb_scan_result_t *scan, scan_service_t *svc)
+void update_service_from_pat(dvb_scan_result_t *scan, pat_section_t *pat)
 {
-    if(!scan->services)
-    {
-        scan->services = svc;
-    }
-    else
-    {
-        scan_service_t *cur = scan->services;
+    if (!scan || !pat) return;
 
-        while(cur->next)
-        {
-            cur = cur->next;
-        }
+	Print("\n==================================================\n");
+	Print(" PAT INFORMATION SCANNING\n");
+	Print("==================================================\n");
 
-        cur->next = svc;
-    }
+	// Transport Stream ID는 보통 16진수(0xXXXX)와 10진수를 병기하는 것이 좋습니다.
+	scan->ts_id = pat->ts_id;
+	Print(" [+] Transport Stream ID : 0x%04X (%d)\n", pat->ts_id, pat->ts_id);
+	Print(" L Program Association List:\n");
 
-    scan->total_services++;
+	pat_program_data_t *prog = pat->prog_data;
+	
+	while(prog != NULL)
+	{
+		// program_number가 0이면 NIT를 의미하므로 별도 표시 
+		if (prog->program_number == 0)
+		{
+			Print("  L [Network]  PID: 0x%04X (NIT)\n", prog->pmt_pid);
+		}
+		else
+		{
+			Print("  L [Program]  ID: 0x%04X | PMT PID: 0x%04X (%d)\n", prog->program_number, prog->pmt_pid, prog->pmt_pid);
+		}
+		
+		scan_service_t *svc = create_service(prog->program_number, prog->pmt_pid);
+		if(svc != NULL)
+		{
+			add_service(scan, svc);
+		}
+
+		prog = prog->next;
+	}
 }
 
 /*-----------------------------------------------------------------------------
@@ -656,23 +678,36 @@ void add_service(dvb_scan_result_t *scan, scan_service_t *svc)
 *
 *
 *---------------------------------------------------------------------------*/
-void update_service_with_pmt(scan_service_t *svc, pmt_section_t *pmt)
+void update_service_from_pmt(scan_service_t *svc, pmt_section_t *pmt)
 {
     if (!svc || !pmt) return;
 
+	Print("\n==================================================\n");
+	Print(" PMT INFORMATION SCANNING (Program ID 0x%04X, %d)\n", pmt->program_number, pmt->program_number);
+	Print("==================================================\n");
+
     svc->pcr_pid = pmt->pcr_pid;
+	Print(" [+] PCR PID : 0x%04X\n", pmt->pcr_pid);
+	Print(" L ES Association List:\n");
+
     pmt_es_data_t *es = pmt->es_data;
 
-    while (es) {
+    while (es)
+	{
         stream_info_t *stream = (stream_info_t*)calloc(1, sizeof(stream_info_t));
-        if (stream) {
+        if (stream)
+		{
             stream->stream_type = es->stream_type;
             stream->elementary_pid = es->elem_pid;
+			Print("  L [ES]  stream type : 0x%02X | elem PID: 0x%04X\n", es->stream_type, es->elem_pid);
             
             // 리스트 하단에 추가
-            if (!svc->streams) {
+            if (!svc->streams)
+			{
                 svc->streams = stream;
-            } else {
+            }
+			else
+			{
                 stream_info_t *curr = svc->streams;
                 while (curr->next) curr = curr->next;
                 curr->next = stream;
@@ -688,25 +723,39 @@ void update_service_with_pmt(scan_service_t *svc, pmt_section_t *pmt)
 *
 *
 *---------------------------------------------------------------------------*/
-void update_service_name_from_sdt(dvb_scan_result_t *scan, sdt_section_t *sdt)
+void update_service_from_sdt(dvb_scan_result_t *scan, sdt_section_t *sdt)
 {
 	if (!scan || !sdt) return;
 
+	Print("\n==================================================\n");
+	Print(" SDT INFORMATION SCANNING\n");
+	Print("==================================================\n");
+	Print(" [+] Transport Stream ID : 0x%04X\n", sdt->ts_id);
+	Print("  L Service Name Mapping:\n");
+
 	sdt_service_data_t *sdt_svc = sdt->svc_data;
-	while (sdt_svc) {
+	while (sdt_svc)
+	{
 		scan_service_t *curr_svc = scan->services;
-		while (curr_svc) {
-			if (curr_svc->program_number == sdt_svc->service_id) {
+		while (curr_svc)
+		{
+			if (curr_svc->program_number == sdt_svc->service_id)
+			{
 				descriptor_t *desc = sdt_svc->desc;
-				while (desc) {
-					if (desc->tag == 0x48) {
+				while (desc)
+				{
+					if (desc->tag == DESC_TAG_SERVICE)
+					{
 						service_desc_t *svc_desc = (service_desc_t *)desc->data;
-						if (svc_desc && svc_desc->service_name_len > 0) {
+						if (svc_desc && svc_desc->service_name_len > 0)
+						{
 							memset(curr_svc->service_name, 0, sizeof(curr_svc->service_name));
 							int copy_len = (svc_desc->service_name_len < (int)sizeof(curr_svc->service_name) - 1) ? 
 											svc_desc->service_name_len : (int)sizeof(curr_svc->service_name) - 1;
 							memcpy(curr_svc->service_name, svc_desc->service_name, copy_len);
 							curr_svc->service_name[copy_len] = '\0';
+							
+							Print("   L Service ID: 0x%04X | Name: %s\n", sdt_svc->service_id, curr_svc->service_name);
 						}
 						break;
 					}
@@ -717,6 +766,67 @@ void update_service_name_from_sdt(dvb_scan_result_t *scan, sdt_section_t *sdt)
 			curr_svc = curr_svc->next;
 		}
 		sdt_svc = sdt_svc->next;
+	}
+}
+
+/*-----------------------------------------------------------------------------
+NIT 섹션 정보를 바탕으로 네트워크 이름 및 LCN(Logical Channel Number) 업데이트
+*
+*
+*---------------------------------------------------------------------------*/
+void update_service_from_nit(dvb_scan_result_t *scan, nit_section_t *nit)
+{
+	if (!scan || !nit) return;
+
+	Print("\n==================================================\n");
+	Print(" NIT INFORMATION SCANNING\n");
+	Print("==================================================\n");
+	
+	// 1. 네트워크 이름 업데이트 (Network Name Descriptor: 0x41)
+	descriptor_t *net_desc = (descriptor_t *)nit->desc;
+	while (net_desc)
+	{
+		if (net_desc->tag == DESC_TAG_NETWORK_NAME)
+		{
+			if(net_desc->data != NULL)
+			{
+				network_name_desc_t *net_name_desc = (network_name_desc_t *)net_desc->data;
+				// network_id와 이름을 매칭하여 관리할 경우 여기에 구현
+				if((net_name_desc != NULL) && (net_name_desc->name != NULL))
+				{
+					Print(" [+] Network Name : %s\n", net_name_desc->name);
+				}
+			}
+		}
+		net_desc = net_desc->next;
+	}
+
+	// 2. LCN 업데이트 (Logical Channel Descriptor: 0x83)
+	nit_ts_data_t *ts_data = (nit_ts_data_t *)nit->ts_data;
+	while (ts_data)
+	{
+		Print("  L [TS ID: 0x%04X] Original Network ID: 0x%04X\n", ts_data->ts_id, ts_data->on_id);
+
+		descriptor_t *ts_desc = (descriptor_t *)ts_data->desc;
+		while (ts_desc)
+		{
+			if (ts_desc->tag == DESC_TAG_DVB_LOGICAL_CHANNEL_NUMBER) // logical_channel_descriptor (유럽/한국 등 표준)
+			{
+				// descriptor 내 데이터를 파싱하여 service_id와 lcn 매칭
+ 				lcn_desc_t *lcn_desc = (lcn_desc_t *)ts_desc->data;
+				lcn_data_t *lcn_data = (lcn_data_t *)lcn_desc->lcn_data;
+
+				Print("  L LCN Mapping (Service ID : LCN : Visible)\n");
+				while(lcn_data)
+				{
+					Print(" 		  -> 0x%04X : %3d : %d\n", lcn_data->service_id, lcn_data->lcn, lcn_data->visiable_flag);
+					
+					lcn_data = lcn_data->next;
+				}
+			}
+			ts_desc = ts_desc->next;
+		}
+		ts_data = ts_data->next;
 	}
 }
 
@@ -829,95 +939,120 @@ void update_time_from_tot(dvb_scan_result_t *scan, tot_section_t *tot)
 *
 *
 *---------------------------------------------------------------------------*/
-void free_scan_results(dvb_scan_result_t *scan)
-{
-	if (scan == NULL) return;
-
-	scan_service_t *svc = scan->services;
-	while (svc) {
-		scan_service_t *next_svc = svc->next;
-		
-		// 1. 스트림 리스트 먼저 해제
-		stream_info_t *s = svc->streams;
-		while (s) {
-			stream_info_t *next_s = s->next;
-			void *ptr_s = (void *)s;
-			Safe_Free(&ptr_s); 
-			s = next_s;
-		}
-		
-		// 2. 서비스 노드 해제
-		void *ptr_svc = (void *)svc;
-		Safe_Free(&ptr_svc);
-		svc = next_svc;
-	}
-
-	scan->services = NULL;
-	scan->total_services = 0;
-}
-
-/*-----------------------------------------------------------------------------
-*
-*
-*
-*---------------------------------------------------------------------------*/
 void scan_channel(void) 
 {
+	dvb_scan_result_t *scan = &dvb_scan.scan;
+	
 	if (!dvb_scan.buf) return;
 	unsigned char *p = dvb_scan.buf;
 	size_t file_size = dvb_scan.size;
 
+	int sec = 0;
+
 	// parse PAT
-	pat_section_t *pat = dvb_get_pat(p, file_size);
-	if(pat) {
-		pat_program_data_t *prog = pat->prog_data;
-		dvb_scan.scan.ts_id = pat->ts_id;
-
-		while(prog) {
-			scan_service_t *svc = create_service(prog->program_number, prog->pmt_pid);
-			if(svc) add_service(&dvb_scan.scan, svc);
-			prog = prog->next;
+	sec = 0;
+	dvb_get_section(p, file_size, PAT_PID);
+	while((sections[sec] != NULL) && (sec < MAX_SECTION))
+	{
+		pat_section_t *pat = pat_parse_section(sections[sec]);
+		if (pat != NULL) 
+		{
+			update_service_from_pat(&dvb_scan.scan, pat);
+			pat_free_section(pat);
 		}
-		pat_free_section(pat);
-		print_scan_pat_services(&dvb_scan.scan);
-		
-		// parse PMT
-		scan_service_t *curr_svc = dvb_scan.scan.services;
-		while (curr_svc) {
-			pmt_section_t *pmt = dvb_get_pmt(p, file_size, curr_svc->pmt_pid);
-			if (pmt) {
-				update_service_with_pmt(curr_svc, pmt);
-				print_scan_pmt_services(curr_svc);
-				pmt_free_section(pmt);
+		sec++;
+	}
+	dvb_free_section();
+	//print_scan_pat_services(scan);
+
+	// parse PMT
+	if(scan->total_services != 0)
+	{
+		scan_service_t *scan_svc = scan->services;
+
+		while(scan_svc != NULL)
+		{
+			// parse PMT
+			sec = 0;
+			dvb_get_section(p, file_size, scan_svc->pmt_pid);
+			while((sections[sec] != NULL) && (sec < MAX_SECTION))
+			{
+				pmt_section_t *pmt = pmt_parse_section(sections[sec]);
+				if (pmt != NULL) 
+				{
+					update_service_from_pmt(scan_svc, pmt);
+					pmt_free_section(pmt);
+				}
+				sec++;
 			}
-			curr_svc = curr_svc->next;
-		}
+			dvb_free_section();
 
-		// parse SDT
-		sdt_section_t *sdt = dvb_get_sdt(p, file_size);
-		if (sdt) {
-			update_service_name_from_sdt(&dvb_scan.scan, sdt);
+			scan_svc = scan_svc->next;
+		}
+		//print_scan_pmt_services(scan_svc);
+	}
+
+	// parse SDT
+	sec = 0;
+	dvb_get_section(p, file_size, SDT_PID);
+	while((sections[sec] != NULL) && (sec < MAX_SECTION))
+	{
+		sdt_section_t *sdt = sdt_parse_section(sections[sec]);
+		if (sdt != NULL) 
+		{
+			update_service_from_sdt(&dvb_scan.scan, sdt);
 			sdt_free_section(sdt);
 		}
-		
-		print_final_scan_results(&dvb_scan.scan);
+		sec++;
 	}
+	dvb_free_section();
+
+	// parse NIT
+	sec = 0;
+	dvb_get_section(p, file_size, NIT_PID);
+	while((sections[sec] != NULL) && (sec < MAX_SECTION))
+	{
+		nit_section_t *nit = nit_parse_section(sections[sec]);
+		if (nit != NULL) 
+		{
+			update_service_from_nit(&dvb_scan.scan, nit);
+			nit_free_section(nit);
+		}
+		sec++;
+	}
+	dvb_free_section();
 
 	// parse TDT
-	tdt_section_t *tdt = dvb_get_tdt(p, file_size);
-	if (tdt) {
-		update_time_from_tdt(&dvb_scan.scan, tdt);
-		tdt_free_section(tdt);
+	sec = 0;
+	dvb_get_section(p, file_size, TDT_PID);
+	while((sections[sec] != NULL) && (sec < MAX_SECTION))
+	{
+		tdt_section_t *tdt = tdt_parse_section(sections[sec]);
+		if (tdt != NULL) 
+		{
+			update_time_from_tdt(&dvb_scan.scan, tdt);
+			tdt_free_section(tdt);
+		}
+		sec++;
 	}
+	dvb_free_section();
 
 	// parse TOT
-	tot_section_t *tot = dvb_get_tot(p, file_size);
-	if (tot) {
-		update_time_from_tot(&dvb_scan.scan, tot);
-		tot_free_section(tot);
+	sec = 0;
+	dvb_get_section(p, file_size, TOT_PID);
+	while((sections[sec] != NULL) && (sec < MAX_SECTION))
+	{
+		tot_section_t *tot = tot_parse_section(sections[sec]);
+		if (tot != NULL) 
+		{
+			update_time_from_tot(&dvb_scan.scan, tot);
+			tot_free_section(tot);
+		}
+		sec++;
 	}
+	dvb_free_section();
 
-	free_scan_results(&dvb_scan.scan);
+	free_service(&dvb_scan.scan);
 }
 
 /*-----------------------------------------------------------------------------

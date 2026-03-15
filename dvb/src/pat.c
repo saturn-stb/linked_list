@@ -116,9 +116,12 @@ pat_section_t *pat_parse_section(unsigned char * p)
 	section_length = (signed short)get_12bit(p);	
 	// table_id 1byte + section_length 2bytes = 3bytes)
 	total_len = (signed short)(section_length + 3);
+	//hexDump("PAT", (void *)(p - 1), total_len);
 	// CRC32 verify
 	get_crc = get_32bit(p + (total_len - 1 - 4));
 	mpeg_crc = get_mpeg_crc32(p - 1, total_len - 4);
+	//Print("[PAT INFO] section_length=%d, total_len=%d, table_id=0x%02x, CRC_pos=%d\n", section_length, total_len, *(p-1), (total_len - 4));
+	//Print("[PAT INFO] mpeg_crc 0x%04X, 0x%04X\n", get_crc, mpeg_crc);
 	if (mpeg_crc != get_crc)
 	{
 		DTV_FREE(sec);
