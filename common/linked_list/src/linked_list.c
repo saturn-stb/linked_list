@@ -281,7 +281,7 @@ void LinkedList_ImportFromCSV(const char* filename)
 	{
 		Node* newNode = &nodePool[poolIndex++];
 
-		int res = sscanf(line, "%hu,%63[^,],%63[^,],%63[^,],%hu,%hu",
+		int res = sscanf(line, "%hu,\"%63[^\"]\",\"%63[^\"]\",\"%63[^\"]\",%hu,%hu",
 								&newNode->data.ch,
 								newNode->data.name,
 								newNode->data.lang,
@@ -1020,6 +1020,44 @@ void LinkedList_SaveToFile(const char* filename)
 	Print("\n[Save Success] %d channels\n", count);
 
 	return;
+}
+
+/*-----------------------------------------------------------------------------
+*  메모리 풀 기반의 링크드 리스트 및 관련 파일 초기화
+*
+*
+*---------------------------------------------------------------------------*/
+void LinkedList_Reset(const char* filename) 
+{
+    // 1. 메모리 풀 초기화 (데이터 영역 전체 0으로 세팅)
+    if (nodePool != NULL)
+    {
+        // pool 전체 크기를 알고 있다면 그만큼 초기화, 모른다면 멤버 변수 리셋
+        memset(nodePool, 0, sizeof(Node) * MAX_CHANNELS); // MAX_POOL_SIZE는 헤더 정의 참조
+    }
+
+    // 2. 리스트 관리 변수들 리셋 (중요)
+    head = NULL;
+    tail = NULL;
+    freeListHead = NULL;
+    poolIndex = 0;
+    lastAssignedCh = 0;
+
+    Print("[Reset] Memory pool and list pointers initialized.\n");
+
+    // 3. 파일 내용 비움
+    FILE* file = fopen(filename, "wb");
+    if (file)
+    {
+        int count = 0;
+        fwrite(&count, sizeof(int), 1, file);
+        fclose(file);
+        Print("[Reset] File %s cleared.\n", filename);
+    }
+    else
+    {
+        Print("[Error] Failed to open file for reset: %s\n", filename);
+    }
 }
 
 /*-----------------------------------------------------------------------------

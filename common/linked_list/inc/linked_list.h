@@ -122,6 +122,7 @@ extern void LinkedList_SearchChannel(unsigned short ch);
 extern void LinkedList_AddChannel(CHANNEL_LIST list);
 extern void LinkedList_LoadFromFile(const char* filename);
 extern void LinkedList_SaveToFile(const char* filename);
+extern void LinkedList_Reset(const char* filename);
 extern void LinkedList_SaveConfig(CONFIG_LIST config);
 extern CONFIG_LIST LinkedList_LoadConfig(void);
 extern int LinkedList_Free(void);

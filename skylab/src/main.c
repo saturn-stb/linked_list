@@ -63,15 +63,16 @@ void printHelp(void)
 	Print("\n  3. Delete Channel     : Remove a channel from the list");
 	Print("\n  4. Save to File       : Save current data with sort options");
 	Print("\n  5. Load from File     : Load data");
-	Print("\n  6. Update Name        : Modify an existing channel's name");
-	Print("\n  7. Sort               : Reorder the list by sort (CH or LCN, Name)");
-	Print("\n  8. Search (Name)      : Search channels by name keyword");
-	Print("\n  9. Print All          : Display all registered channels");
-	Print("\n 10. CSV Export         : Export data to 'channels_backup.csv'");
-	Print("\n 11. CSV Import         : Import data from 'channels_backup.csv'");
-	Print("\n 12. Convert to JSON    : Convert data from 'channels_backup.json");
-	Print("\n 13. Convert to CSV     : Convert data from 'channels_backup.csv");
-	Print("\n 21. PAT Parse          : DVB PAT Parsing from input file");
+	Print("\n  6. Reset from File    : Reset data");
+	Print("\n  7. Update Name        : Modify an existing channel's name");
+	Print("\n  8. Sort               : Reorder the list by sort (CH or LCN, Name)");
+	Print("\n  9. Search (Name)      : Search channels by name keyword");
+	Print("\n 10. Print All          : Display all registered channels");
+	Print("\n 11. CSV Export         : Export data to 'channels_backup.csv'");
+	Print("\n 12. CSV Import         : Import data from 'channels_backup.csv'");
+	Print("\n 13. Convert to JSON    : Convert data from 'channels_backup.json");
+	Print("\n 14. Convert to CSV     : Convert data from 'channels_backup.csv");
+	Print("\n 21. DVB SI Parse       : DVB SI Parsing from input file");
 	Print("\n  0. Exit               : Save and terminate the program");
 	Print("\n================================================================\n");
 	Print(" Tip: Type the number or 'help' to see this menu again.\n");
@@ -251,6 +252,13 @@ int main()
 
 			case 6:
 			{
+				LinkedList_Reset(CHANNEL_LIST_FILE);
+				//LinkedList_LoadFromFile(CHANNEL_LIST_FILE);
+			}
+			break;
+
+			case 7:
+			{
 				unsigned short targetCh;
 				Print("\nEnter Channel Number to update name:");
 				if (scanf("%hu", &targetCh) != 1)
@@ -269,7 +277,7 @@ int main()
 			}
 			break;
 
-			case 7:
+			case 8:
 			{
 				unsigned short sortType;
 				Print("\nEnter Channel Sort: ");
@@ -284,7 +292,7 @@ int main()
 			}
 			break;
 			
-			case 8:
+			case 9:
 			{
 				char searchName[32];
 				Print("\nEnter channel name (keyword) to search:");
@@ -300,11 +308,11 @@ int main()
 			}
 			break;
 
-            case 9: LinkedList_PrintAllChannels(); break;
-			case 10: LinkedList_ExportToCSV(CHANNEL_LIST_CSV_FILE); break;
-			case 11: LinkedList_ImportFromCSV(CHANNEL_LIST_CSV_FILE); break;
-			case 12: LinkedList_CsvToJson(CHANNEL_LIST_CSV_FILE, CHANNEL_LIST_JSON_FILE); break;
-			case 13: LinkedList_JsonToCsv(CHANNEL_LIST_JSON_FILE, CHANNEL_LIST_CSV_FILE); break;
+            case 10: LinkedList_PrintAllChannels(); break;
+			case 11: LinkedList_ExportToCSV(CHANNEL_LIST_CSV_FILE); break;
+			case 12: LinkedList_ImportFromCSV(CHANNEL_LIST_CSV_FILE); break;
+			case 13: LinkedList_CsvToJson(CHANNEL_LIST_CSV_FILE, CHANNEL_LIST_JSON_FILE); break;
+			case 14: LinkedList_JsonToCsv(CHANNEL_LIST_JSON_FILE, CHANNEL_LIST_CSV_FILE); break;
 
 			case 21:
 			{
