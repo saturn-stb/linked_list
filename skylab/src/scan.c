@@ -25,6 +25,7 @@
 #include "tdt.h"
 #include "tot.h"
 
+#include "linked_list.h"
 #include "scan.h"
 
 /******************************************************************************
@@ -204,6 +205,8 @@ void print_final_scan_results(dvb_scan_result_t *scan)
     scan_service_t *svc = scan->services;
     int count = 0;
 
+	CHANNEL_LIST chList;
+
     Print("\n==================================================\n");
     Print(" FINAL CHANNEL SCAN RESULTS (Total: %d)\n", scan->total_services);
     Print("==================================================\n");
@@ -222,7 +225,12 @@ void print_final_scan_results(dvb_scan_result_t *scan)
                name, 
                svc->pmt_pid, svc->lcn);
 		Print("--------------------------------------------------\n");
-        
+
+		memset(&chList, 0x0, sizeof(CHANNEL_LIST));
+		memcpy(chList.name, name, strlen(name));
+		chList.sid = svc->program_number;
+		chList.lcn = svc->lcn;
+
         // 상세 스트림 정보(비디오/오디오 PID)까지 보고 싶다면 아래 주석 해제
 		// 스트림 정보 출력 루프 수정	 
 		stream_info_t *stream = svc->streams;
@@ -241,6 +249,8 @@ void print_final_scan_results(dvb_scan_result_t *scan)
 		}
 
 		Print("--------------------------------------------------\n");
+
+		LinkedList_AddChannel(chList);
 
         svc = svc->next;
 		count++;

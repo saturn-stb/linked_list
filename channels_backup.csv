@@ -1,2 +1,14 @@
 ﻿Channel_No,Name,Lang,Country,LCN,SID
 1,"KBS","kor","KR",7,1234
+2,"Unknown","","",0,0
+3,"CANAL+","","",0,8801
+4,"CANAL+ DECALE","","",0,8802
+5,"CANAL+ CINEMA","","",0,8803
+6,"CANAL+ SPORT","","",0,8804
+7,"CANAL+ FAMILY","","",0,8805
+8,"CANAL+ SERIES","","",0,8806
+9,"CINE+ FRISSON","","",0,8807
+10,"CINE+ FAMIZ","","",0,8808
+11,"CINE+ CLASSIC","","",0,8809
+12,"CNEWS","","",0,8810
+13,"DATASYSTEM","","",0,8899

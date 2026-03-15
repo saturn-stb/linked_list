@@ -297,12 +297,14 @@ void LinkedList_ImportFromCSV(const char* filename)
 			isValid = 0;
 		}
 
+#if 0
 		// [검증 2] SID 범위 체크 (0 제외 및 SID_MASK 0x1FFF 초과 비트 체크)
 		// 사용자가 제안하신 (sid & 0x2000)를 포함하여 마스크 밖의 비트가 있는지 확인합니다.
 		if (isValid && ((newNode->data.sid == 0) || (newNode->data.sid & ~SID_MASK) || (newNode->data.sid > SID_MASK)))
 		{
 			isValid = 0;
 		}
+#endif
 
 		// [검증 3] SID 중복 체크
 		if (isValid && isDuplicateSID(newNode->data.sid))
@@ -328,8 +330,10 @@ void LinkedList_ImportFromCSV(const char* filename)
 				}
 			}
 
+#if 0
 			// 모든 검증 통과 시 마스킹 적용 후 연결
 			newNode->data.sid &= SID_MASK; 
+#endif
 			newNode->next = NULL;
 
 			if (head == NULL)
@@ -820,6 +824,14 @@ void LinkedList_AddChannel(CHANNEL_LIST list)
 	Print("Service ID : %d\n", list.sid);
 	newNode->data.sid = list.sid;
 
+#if 1
+	// [검증 2] SID 중복 체크 (추가된 부분)
+	if (isDuplicateSID(newNode->data.sid))
+	{
+		Print("[Error] SID %u already exists. Each channel must have a unique SID.\n", newNode->data.sid);
+		goto cancel_add;
+	}
+#else
 	// [검증 1] SID 0 체크
 	// 0x2000 이상의 비트가 포함되어 있거나, 마스킹 후 0이 되는 경우 차단
 	if ((newNode->data.sid == 0) || (newNode->data.sid & ~SID_MASK) || (newNode->data.sid > SID_MASK))
@@ -837,6 +849,7 @@ void LinkedList_AddChannel(CHANNEL_LIST list)
 	}
 
 	newNode->data.sid &= SID_MASK; // 정의된 마스크 적용
+#endif
 
 	// 6. 성공적으로 리스트에 연결
 	newNode->next = NULL;
@@ -910,11 +923,13 @@ void LinkedList_LoadFromFile(const char* filename)
 
 		int isValid = 1;
 
+#if 0
 		// [검증 1] SID 범위 체크 (0 제외 및 마스크 0x1FFF 초과 비트 체크)
 		if ((newNode->data.sid == 0) || (newNode->data.sid & ~SID_MASK) || (newNode->data.sid > SID_MASK))
 		{
 			isValid = 0;
 		}
+#endif
 
 		// [검증 2] SID 중복 체크
 		// 불러오는 과정에서 파일 내 중복 데이터가 있을 경우 차단
@@ -953,7 +968,9 @@ void LinkedList_LoadFromFile(const char* filename)
 				}
 			}
 
+#if 0
 			newNode->data.sid &= SID_MASK; // 마스킹 적용
+#endif
 			newNode->next = NULL;
 
 			if (head == NULL)
