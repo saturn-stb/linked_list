@@ -35,6 +35,7 @@ typedef struct stream_info_s
 {
 	unsigned char  stream_type;    // 0x02:MPEG2, 0x1B:H.264 등
 	unsigned short elementary_pid; // 해당 스트림의 PID 
+	unsigned char language[3];     // ISO639 Language
 
 	struct stream_info_s *next;    // 다음 스트림으로 연결
 } stream_info_t;
@@ -46,6 +47,7 @@ typedef struct scan_service_s
     unsigned short pmt_pid;        // PAT에서 얻은 PMT PID
     unsigned short pcr_pid;        // PCR PID는 채널당 하나이므로 여기에 배치
     unsigned char  is_scanned;     // PMT/SDT 파싱 완료 여부 (0: 대기, 1: 완료)
+    unsigned short lcn;            // Logical Channel Number
     unsigned char  service_type;   // TV, Radio, Data 등 (PMT/SDT 파싱 후 업데이트)
     char           service_name[32]; // 채널명 (SDT 파싱 후 업데이트)
 

@@ -199,53 +199,6 @@ void free_service(dvb_scan_result_t *scan)
 *
 *
 *---------------------------------------------------------------------------*/
-void print_scan_pat_services(dvb_scan_result_t *scan)
-{
-    scan_service_t *svc = scan->services;
-
-    Print("==================================================\n");
-    Print(" PAT\n");
-    Print("==================================================\n");
-    Print("TS_ID : %d\n", scan->ts_id);
-    Print("Total services : %d\n", scan->total_services);
-
-    while(svc)
-    {
-		Print(" Program: %-5d | PMT PID: 0x%04X\n", svc->program_number, svc->pmt_pid);
-
-        svc = svc->next;
-    }
-}
-
-/*-----------------------------------------------------------------------------
-*
-*
-*
-*---------------------------------------------------------------------------*/
-void print_scan_pmt_services(scan_service_t *svc)
-{
-    stream_info_t *s;
-
-    Print("Program %d\n", svc->program_number);
-    Print("PCR PID : 0x%X\n", svc->pcr_pid);
-
-    s = svc->streams;
-
-    while(s)
-    {
-        Print("  Stream Type: 0x%X  PID: 0x%X\n",
-               s->stream_type,
-               s->elementary_pid);
-
-        s = s->next;
-    }
-}
-
-/*-----------------------------------------------------------------------------
-*
-*
-*
-*---------------------------------------------------------------------------*/
 void print_final_scan_results(dvb_scan_result_t *scan)
 {
     scan_service_t *svc = scan->services;
@@ -254,20 +207,21 @@ void print_final_scan_results(dvb_scan_result_t *scan)
     Print("\n==================================================\n");
     Print(" FINAL CHANNEL SCAN RESULTS (Total: %d)\n", scan->total_services);
     Print("==================================================\n");
-    Print(" No.  | Prog ID | Channel Name        | PMT PID\n");
-    Print("--------------------------------------------------\n");
 
     while(svc)
     {
-        count++;
         // 채널 이름이 비어있으면 "Unknown"으로 표시
         char *name = (svc->service_name[0] != '\0') ? (char*)svc->service_name : "Unknown";
 
-        Print(" %-4d | %-7d | %-19s | 0x%04X\n", 
+		Print("--------------------------------------------------\n");
+		Print(" No.  | Prog ID | Channel Name        | PMT PID | LCN\n");
+		Print("--------------------------------------------------\n");
+        Print(" %-4d | %-7d | %-19s | 0x%04X  | %d\n", 
                count, 
                svc->program_number, 
                name, 
-               svc->pmt_pid);
+               svc->pmt_pid, svc->lcn);
+		Print("--------------------------------------------------\n");
         
         // 상세 스트림 정보(비디오/오디오 PID)까지 보고 싶다면 아래 주석 해제
 		// 스트림 정보 출력 루프 수정	 
@@ -276,11 +230,12 @@ void print_final_scan_results(dvb_scan_result_t *scan)
 		{
 			const char* type_str = get_stream_type_name(stream->stream_type); // 타입 이름 변환 함수가 있다면 활용
 			// [수정 포인트] 간격을 맞추기 위해 필드 폭 지정 (%-12s, %04X 등)
-			Print("	 L [Stream] Type: 0x%02X (%-10s) | PID: 0x%04X (%4d)\n",
+			Print("  L [Stream] Type: 0x%02X (%-10s) | PID: 0x%04X (%4d) | LANG: %s\n",
 					stream->stream_type,
 					type_str ? type_str : "Unknown",
 					stream->elementary_pid,
-					stream->elementary_pid);
+					stream->elementary_pid,
+					stream->language);
 
 			stream = stream->next;
 		}
@@ -288,6 +243,7 @@ void print_final_scan_results(dvb_scan_result_t *scan)
 		Print("--------------------------------------------------\n");
 
         svc = svc->next;
+		count++;
     }
     Print("==================================================\n\n");
 }
@@ -337,37 +293,37 @@ void dvb_free_section(void)
 *---------------------------------------------------------------------------*/
 void dvb_get_section(unsigned char *ts, size_t size, unsigned short flt_pid)
 {
-    int pktLen = detect_packet_len(ts);
+	int pktLen = detect_packet_len(ts);
 
-    unsigned char sec_buf[MAX_SECTION_BUF_SIZE];
+	unsigned char sec_buf[MAX_SECTION_BUF_SIZE];
 
-    int section_received[MAX_SECTION];
-    int last_section_number = -1;
-    int received_count = 0;
+	int section_received[MAX_SECTION];
+	int last_section_number = -1;
+	int received_count = 0;
 
-    int sec_pos = 0;
-    int sec_len = 0;
+	int sec_pos = 0;
+	int sec_len = 0;
 
-    unsigned char *pkt = ts;
+	unsigned char *pkt = ts;
 
-    dvb_free_section();
+	dvb_free_section();
 
-    memset(sec_buf, 0, sizeof(sec_buf));
-    memset(section_received, 0, sizeof(section_received));
+	memset(sec_buf, 0, sizeof(sec_buf));
+	memset(section_received, 0, sizeof(section_received));
 
-    Print("\r\ndvb_get_section (filter pid 0x%04x)\n", flt_pid);
+	Print("\r\ndvb_get_section (filter pid 0x%04x)\n", flt_pid);
 
-    while (pkt < (ts + size))
-    {
-        if (pkt[0] != TS_SYNC_BYTE) {
-            pkt++;
-            continue;
-        }
+	while (pkt < (ts + size))
+	{
+		if (pkt[0] != TS_SYNC_BYTE) {
+			pkt++;
+			continue;
+		}
 
-		if (flt_pid == TDT_PID)
+		if (flt_pid == (TDT_PID + 0x2000))
 		{
 			unsigned short pid = ((pkt[1] & 0x1F) << 8) | pkt[2];
-			if (pid != flt_pid) {
+			if (pid != (flt_pid - 0x2000)) {
 				pkt += pktLen;
 				continue;
 			}
@@ -388,28 +344,36 @@ void dvb_get_section(unsigned char *ts, size_t size, unsigned short flt_pid)
 				sec_pos = 0;
 			}
 
-	        if (sec_pos < 3 && payload_len > 0) {
-	            int need = 3 - sec_pos;
-	            if (need > payload_len) need = payload_len;
-	            memcpy(sec_buf + sec_pos, payload, need);
-	            sec_pos += need;
-	            payload += need;
-	            payload_len -= need;
+			if (sec_pos < 3 && payload_len > 0) {
+				int need = 3 - sec_pos;
+				if (need > payload_len) need = payload_len;
+				memcpy(sec_buf + sec_pos, payload, need);
+				//Print("1. section 0x%02x length: %d\n", sec_buf[0], need);
+				sec_pos += need;
+				payload += need;
+				payload_len -= need;
 
-	            if (sec_pos >= 3) {
-	                sec_len = (((sec_buf[1] & 0x0F) << 8) | sec_buf[2]) + 3;
-	            }
-	        }
+				if (sec_pos >= 3) {
+					sec_len = (((sec_buf[1] & 0x0F) << 8) | sec_buf[2]) + 3;
+					//Print("2. section 0x%02x length: %d\n", sec_buf[0], sec_len);
+				}
+			}
 
-	        if (sec_len > 0 && sec_pos < sec_len && payload_len > 0) {
-	            int copy = sec_len - sec_pos;
-	            if (copy > payload_len) copy = payload_len;
-	            memcpy(sec_buf + sec_pos, payload, copy);
-	            sec_pos += copy;
-	        }
+			if (sec_len > 0 && sec_pos < sec_len && payload_len > 0) {
+				int copy = sec_len - sec_pos;
+				if (copy > payload_len) copy = payload_len;
+				memcpy(sec_buf + sec_pos, payload, copy);
+				//Print("3. section 0x%02x length: %d\n", sec_buf[0], copy);
+				if(sec_buf[0] == TDT_TID)
+					sec_pos += copy;
+				else
+					sec_pos += copy;
+				//Print("4. section pos: %d, len = %d\n", sec_pos, sec_len);
+			}
 
-	        if (sec_len > 0 && sec_pos >= sec_len) {
-				if ((sec_buf[0] == TDT_TID) || (sec_buf[0] == TOT_TID)){
+			if (sec_len > 0 && sec_pos >= sec_len) {
+				if (sec_buf[0] == TDT_TID){
+					//hexDump("TDT", sec_buf, sec_len);
 					int sec_num = 0;
 					last_section_number = 0;
 					sections[sec_num] = malloc(sec_len);
@@ -421,24 +385,24 @@ void dvb_get_section(unsigned char *ts, size_t size, unsigned short flt_pid)
 						section_received[sec_num] = 1;
 						received_count++;
 					
-						Print("SECTION STORED %d\n", sec_num);
+						Print("[TDT] SECTION STORED %d\n", sec_num);
 					}
 
 					if (last_section_number >= 0 &&
 						received_count >= (last_section_number + 1))
 					{
-						Print("Received all sections\n");
+						Print("[TDT] Received all sections\n");
 						return;
 					}
 				}
 
-	            sec_pos = 0;
-	        }
+				sec_pos = 0;
+			}
 		}
 		else
 		{
 			unsigned short pid = ((pkt[1] & 0x1F) << 8) | pkt[2];
-			if (pid != (flt_pid & ~0x2000)) {
+			if (pid != flt_pid) {
 				pkt += pktLen;
 				continue;
 			}
@@ -469,166 +433,119 @@ void dvb_get_section(unsigned char *ts, size_t size, unsigned short flt_pid)
 				sec_len = 0;
 			}
 
-        	while (payload_len > 0)
-	        {
-	            /* header (3 bytes) */
-	            if (sec_pos < 3)
-	            {
-	                int need = 3 - sec_pos;
-	                int copy = payload_len < need ? payload_len : need;
+			while (payload_len > 0)
+			{
+				/* header (3 bytes) */
+				if (sec_pos < 3)
+				{
+					int need = 3 - sec_pos;
+					int copy = payload_len < need ? payload_len : need;
 
-	                memcpy(sec_buf + sec_pos, payload, copy);
+					memcpy(sec_buf + sec_pos, payload, copy);
 
-	                sec_pos += copy;
-	                payload += copy;
-	                payload_len -= copy;
+					sec_pos += copy;
+					payload += copy;
+					payload_len -= copy;
 
-	                if (sec_pos < 3)
-	                    break;
+					if (sec_pos < 3)
+						break;
 
 					if (sec_pos == 3)
 					{
 						sec_len = (((sec_buf[1] & 0x0F) << 8) | sec_buf[2]) + 3;
-		                if (sec_len < 3 || sec_len > MAX_SECTION_BUF_SIZE)
-		                {
+						if (sec_len < 3 || sec_len > MAX_SECTION_BUF_SIZE)
+						{
 							Print("Invalid section length: %d\n", sec_len);
-		                    sec_pos = 0;
-		                    sec_len = 0;
-		                    break;
-		                }
+							sec_pos = 0;
+							sec_len = 0;
+							break;
+						}
 					}
-	            }
+				}
 
-	            /* body */
-	            if (sec_pos >= 3 && sec_len > 0)
-	            {
-	                int remain = sec_len - sec_pos;
-	                int copy = payload_len < remain ? payload_len : remain;
+				/* body */
+				if (sec_pos >= 3 && sec_len > 0)
+				{
+					int remain = sec_len - sec_pos;
+					int copy = payload_len < remain ? payload_len : remain;
 
-	                memcpy(sec_buf + sec_pos, payload, copy);
+					memcpy(sec_buf + sec_pos, payload, copy);
 
-	                sec_pos += copy;
-	                payload += copy;
-	                payload_len -= copy;
-	            }
+					sec_pos += copy;
+					payload += copy;
+					payload_len -= copy;
+				}
 
-	            /* section complete */
-	            if (sec_len > 0 && sec_pos >= sec_len)
-	            {
-					int sec_num = 0;
+				/* section complete */
+				if (sec_len > 0 && sec_pos >= sec_len)
+				{
+					if (sec_buf[0] == TOT_TID)
+					{
+						int sec_num = 0;
+						//hexDump("TOT", sec_buf, sec_len);
 
-					sec_num = sec_buf[6];
-					last_section_number = sec_buf[7];
+						last_section_number = 0;
+						sections[sec_num] = malloc(sec_len);
+						
+						if (sections[sec_num] != NULL)
+						{
+							memcpy(sections[sec_num], sec_buf, sec_len);
+						
+							section_received[sec_num] = 1;
+							received_count++;
+						
+							Print("[TOT] SECTION STORED %d\n", sec_num);
+						}
 
-	                Print("section %d / last %d\n", sec_num, last_section_number);
+						if (last_section_number >= 0 &&
+							received_count >= (last_section_number + 1))
+						{
+							Print("[TOT] Received all sections\n");
+							return;
+						}
+					}
+					else
+					{
+						int sec_num = 0;
+						
+						sec_num = sec_buf[6];
+						last_section_number = sec_buf[7];
 
-	                if (sec_num < MAX_SECTION &&
-	                    !section_received[sec_num])
-	                {
-	                    sections[sec_num] = malloc(sec_len);
+						Print("section %d / last %d\n", sec_num, last_section_number);
 
-	                    if (sections[sec_num] != NULL)
-	                    {
-	                        memcpy(sections[sec_num], sec_buf, sec_len);
+						if (sec_num < MAX_SECTION &&
+							!section_received[sec_num])
+						{
+							sections[sec_num] = malloc(sec_len);
 
-	                        section_received[sec_num] = 1;
-	                        received_count++;
+							if (sections[sec_num] != NULL)
+							{
+								memcpy(sections[sec_num], sec_buf, sec_len);
 
-	                        Print("SECTION STORED %d\n", sec_num);
-	                    }
-	                }
+								section_received[sec_num] = 1;
+								received_count++;
 
-	                if (last_section_number >= 0 &&
-	                    received_count >= (last_section_number + 1))
-	                {
-	                    Print("Received all sections\n");
-	                    return;
-	                }
+								Print("SECTION STORED %d\n", sec_num);
+							}
+						}
 
-	                /* prepare next section */
-	                sec_pos = 0;
-	                sec_len = 0;
-	            }
-	        }
+						if (last_section_number >= 0 &&
+							received_count >= (last_section_number + 1))
+						{
+							Print("Received all sections\n");
+							return;
+						}
+					}
+
+					/* prepare next section */
+					sec_pos = 0;
+					sec_len = 0;
+				}
+			}
 		}
 
-        pkt += pktLen;
-    }
-}
-
-/*-----------------------------------------------------------------------------
-* TOT(Time Offset Table)
-*
-*
-*---------------------------------------------------------------------------*/
-tot_section_t* dvb_get_tot(unsigned char *ts, size_t size)
-{
-    int pktLen = detect_packet_len(ts);
-	unsigned char sec_buf[MAX_SECTION_BUF_SIZE];
-    int sec_pos = 0;
-    int sec_len = 0;
-    unsigned char *pkt = ts;
-
-    while (pkt < (ts + size))
-    {
-        if (pkt[0] != TS_SYNC_BYTE) {
-            pkt++;
-            continue;
-        }
-
-        unsigned short pid = ((pkt[1] & 0x1F) << 8) | pkt[2];
-        if (pid != TOT_PID) {
-            pkt += pktLen;
-            continue;
-        }
-
-        unsigned char pusi = (pkt[1] & 0x40) >> 6;
-        unsigned char afc = (pkt[3] & 0x30) >> 4;
-        int header_len = 4;
-
-        if (afc == 2) { pkt += pktLen; continue; }
-        if (afc == 3) header_len += pkt[4] + 1;
-        
-        unsigned char *payload = pkt + header_len;
-        int payload_len = pktLen - header_len;
-
-        if (pusi) {
-            int pointer = payload[0];
-            payload += pointer + 1;
-            payload_len -= pointer + 1;
-            sec_pos = 0;
-        }
-
-        if (sec_pos < 3 && payload_len > 0) {
-            int need = 3 - sec_pos;
-            if (need > payload_len) need = payload_len;
-            memcpy(sec_buf + sec_pos, payload, need);
-            sec_pos += need;
-            payload += need;
-            payload_len -= need;
-
-            if (sec_pos >= 3) {
-                sec_len = (((sec_buf[1] & 0x0F) << 8) | sec_buf[2]) + 3;
-            }
-        }
-
-        if (sec_len > 0 && sec_pos < sec_len && payload_len > 0) {
-            int copy = sec_len - sec_pos;
-            if (copy > payload_len) copy = payload_len;
-            memcpy(sec_buf + sec_pos, payload, copy);
-            sec_pos += copy;
-        }
-
-        if (sec_len > 0 && sec_pos >= sec_len) {
-            // TOT Table ID: 0x73
-            if (sec_buf[0] == TOT_TID){
-                return tot_parse_section(sec_buf);
-            }
-            sec_pos = 0;
-        }
-        pkt += pktLen;
-    }
-    return NULL;
+		pkt += pktLen;
+	}
 }
 
 /*-----------------------------------------------------------------------------
@@ -688,11 +605,34 @@ void update_service_from_pmt(scan_service_t *svc, pmt_section_t *pmt)
 
     svc->pcr_pid = pmt->pcr_pid;
 	Print(" [+] PCR PID : 0x%04X\n", pmt->pcr_pid);
+
+    descriptor_t *desc = pmt->desc;
+
+	while(desc != NULL)
+	{
+		if(desc->tag == DESC_TAG_CA)
+		{
+			ca_desc_t *ca_desc = (ca_desc_t *)desc->data;
+			if(ca_desc != NULL)
+			{
+				Print(" L [CA]  CA system id : 0x%04X | CA PID: 0x%04X\n", ca_desc->ca_system_id, ca_desc->ca_pid);
+
+				private_data_t *priv_data = (private_data_t *)ca_desc->priv_data;
+				if(priv_data != NULL)
+				{
+					hexDump("CA Private Data", priv_data->data, priv_data->len);
+				}
+			}
+		}
+		
+		desc = desc->next;
+	}
+
 	Print(" L ES Association List:\n");
 
     pmt_es_data_t *es = pmt->es_data;
 
-    while (es)
+    while (es != NULL)
 	{
         stream_info_t *stream = (stream_info_t*)calloc(1, sizeof(stream_info_t));
         if (stream)
@@ -709,10 +649,33 @@ void update_service_from_pmt(scan_service_t *svc, pmt_section_t *pmt)
 			else
 			{
                 stream_info_t *curr = svc->streams;
-                while (curr->next) curr = curr->next;
+                while (curr->next)
+                {
+					curr = curr->next;
+                }
+				
                 curr->next = stream;
             }
         }
+
+		descriptor_t *desc = es->desc;
+		while(desc != NULL)
+		{
+			if(desc->tag == DESC_TAG_ISO_639_LANG)
+			{
+				iso_639_lang_desc_t *lang_desc = (iso_639_lang_desc_t *)desc->data;
+				iso_639_lang_data_t *data = lang_desc->lang_data;
+				if(data != NULL)
+				{
+					memset(stream->language, 0x0, ISO_LANGUAGE_CODE);
+					memcpy(stream->language, data->lang_code, ISO_LANGUAGE_CODE);
+					Print("    L language : %s | audio type : 0x%02X\n", data->lang_code, data->audio_type);
+				}
+			}
+			
+			desc = desc->next;
+		}
+
         es = es->next;
     }
     svc->is_scanned = 1;
@@ -731,7 +694,7 @@ void update_service_from_sdt(dvb_scan_result_t *scan, sdt_section_t *sdt)
 	Print(" SDT INFORMATION SCANNING\n");
 	Print("==================================================\n");
 	Print(" [+] Transport Stream ID : 0x%04X\n", sdt->ts_id);
-	Print("  L Service Name Mapping:\n");
+	Print(" L Service Name Mapping:\n");
 
 	sdt_service_data_t *sdt_svc = sdt->svc_data;
 	while (sdt_svc)
@@ -794,7 +757,7 @@ void update_service_from_nit(dvb_scan_result_t *scan, nit_section_t *nit)
 				// network_id와 이름을 매칭하여 관리할 경우 여기에 구현
 				if((net_name_desc != NULL) && (net_name_desc->name != NULL))
 				{
-					Print(" [+] Network Name : %s\n", net_name_desc->name);
+					Print("[+] Network Name : %s\n", net_name_desc->name);
 				}
 			}
 		}
@@ -805,7 +768,7 @@ void update_service_from_nit(dvb_scan_result_t *scan, nit_section_t *nit)
 	nit_ts_data_t *ts_data = (nit_ts_data_t *)nit->ts_data;
 	while (ts_data)
 	{
-		Print("  L [TS ID: 0x%04X] Original Network ID: 0x%04X\n", ts_data->ts_id, ts_data->on_id);
+		Print(" L [TS ID: 0x%04X] Original Network ID: 0x%04X\n", ts_data->ts_id, ts_data->on_id);
 
 		descriptor_t *ts_desc = (descriptor_t *)ts_data->desc;
 		while (ts_desc)
@@ -816,9 +779,20 @@ void update_service_from_nit(dvb_scan_result_t *scan, nit_section_t *nit)
  				lcn_desc_t *lcn_desc = (lcn_desc_t *)ts_desc->data;
 				lcn_data_t *lcn_data = (lcn_data_t *)lcn_desc->lcn_data;
 
-				Print("  L LCN Mapping (Service ID : LCN : Visible)\n");
+				Print(" L LCN Mapping (Service ID : LCN : Visible)\n");
 				while(lcn_data)
 				{
+					scan_service_t *curr_svc = scan->services;
+					while (curr_svc)
+					{
+						if (curr_svc->program_number == lcn_data->service_id)
+						{
+							curr_svc->lcn = lcn_data->lcn;
+						}
+
+						curr_svc = curr_svc->next;
+					}
+					
 					Print(" 		  -> 0x%04X : %3d : %d\n", lcn_data->service_id, lcn_data->lcn, lcn_data->visiable_flag);
 					
 					lcn_data = lcn_data->next;
@@ -839,6 +813,10 @@ void update_time_from_tdt(dvb_scan_result_t *scan, tdt_section_t *tdt)
 {
 	if (!scan || !tdt) return;
 
+	Print("\n==================================================\n");
+	Print(" TDT INFORMATION SCANNING\n");
+	Print("==================================================\n");
+
 	// 1. MJD 추출 및 변환
 	unsigned short mjd = (tdt->time[0] << 8) | tdt->time[1];
 	int year, month, day;
@@ -851,8 +829,7 @@ void update_time_from_tdt(dvb_scan_result_t *scan, tdt_section_t *tdt)
 	int second = ((tdt->time[4] >> 4) * 10) + (tdt->time[4] & 0x0F);
 
 	// 3. 결과 출력
-	Print("\n[TDT_SCAN] Current Date: %04d-%02d-%02d\n", year, month, day);
-	Print("[TDT_SCAN] Current UTC Time: %02d:%02d:%02d\n", hour, minute, second);
+	Print("[+] Current Date: %04d-%02d-%02d, %02d:%02d:%02d\n", year, month, day, hour, minute, second);
 }
 
 /*-----------------------------------------------------------------------------
@@ -866,6 +843,10 @@ void update_time_from_tot(dvb_scan_result_t *scan, tot_section_t *tot)
 	
     if (!scan || !tot) return;
 
+	Print("\n==================================================\n");
+	Print(" TOT INFORMATION SCANNING\n");
+	Print("==================================================\n");
+
     // 1. 기본 UTC 시간 및 날짜 추출 (TDT와 동일 로직)
     unsigned short mjd = (tot->time[0] << 8) | tot->time[1];
     int year, month, day;
@@ -875,7 +856,7 @@ void update_time_from_tot(dvb_scan_result_t *scan, tot_section_t *tot)
     int minute = ((tot->time[3] >> 4) * 10) + (tot->time[3] & 0x0F);
     int second = ((tot->time[4] >> 4) * 10) + (tot->time[4] & 0x0F);
 
-    Print("\n[TOT_SCAN] UTC Date: %04d-%02d-%02d, Time: %02d:%02d:%02d\n", 
+    Print("[+] UTC Date: %04d-%02d-%02d, Time: %02d:%02d:%02d\n", 
            year, month, day, hour, minute, second);
 
     // 2. Local Time Offset Descriptor 파싱 (Tag: 0x58)
@@ -886,7 +867,7 @@ void update_time_from_tot(dvb_scan_result_t *scan, tot_section_t *tot)
             // 데이터 구조에 따라 시차(offset)를 추출합니다.
             // 보통 2바이트 정보를 통해 UTC 대비 시차를 계산합니다.
 
-			Print("\n[TOT_SCAN] Local Time Offset Descriptors Found:\n");
+			Print("Local Time Offset Descriptors Found:\n");
 			Print("--------------------------------------------------\n");
 			Print(" No. | Country | Reg ID | Polarity | Offset | Time of Change      | Next Time Offset \n");
 			Print("--------------------------------------------------\n");
@@ -963,7 +944,6 @@ void scan_channel(void)
 		sec++;
 	}
 	dvb_free_section();
-	//print_scan_pat_services(scan);
 
 	// parse PMT
 	if(scan->total_services != 0)
@@ -989,7 +969,6 @@ void scan_channel(void)
 
 			scan_svc = scan_svc->next;
 		}
-		//print_scan_pmt_services(scan_svc);
 	}
 
 	// parse SDT
@@ -1024,7 +1003,7 @@ void scan_channel(void)
 
 	// parse TDT
 	sec = 0;
-	dvb_get_section(p, file_size, TDT_PID);
+	dvb_get_section(p, file_size, (TDT_PID + 0x2000));
 	while((sections[sec] != NULL) && (sec < MAX_SECTION))
 	{
 		tdt_section_t *tdt = tdt_parse_section(sections[sec]);
@@ -1051,6 +1030,8 @@ void scan_channel(void)
 		sec++;
 	}
 	dvb_free_section();
+
+	print_final_scan_results(&dvb_scan.scan);
 
 	free_service(&dvb_scan.scan);
 }
