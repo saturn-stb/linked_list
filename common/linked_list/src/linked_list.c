@@ -96,457 +96,385 @@ static int isDuplicateCH(unsigned short ch)
 }
 
 /*-----------------------------------------------------------------------------
-*
+* 채널 리스트 출력
 *
 *
 *---------------------------------------------------------------------------*/
 void LinkedList_PrintAllChannels(void)
 {
-	if (head == NULL)
-	{
-		Print("\nNo channels registered.\n");
-		return;
-	}
+    if (head == NULL)
+    {
+        Print("\nNo channels registered.\n");
+        return;
+    }
 
-	// 헤더와 데이터 개수를 6개로 맞춤 (CH, NAME, LANG, CODE, COUNTRY, CODE, LCN, SID)
-	Print("\n%-8s %-20s %-4s %-4s %-4s %-4s %-8s %-8s\n", "CH", "NAME", "LANG", "CODE", "CTRY", "CODE", "LCN", "SID");
-	Print("----------------------------------------------------------------------\n");
+    // 헤더: 열별 너비를 통일 (CH:4, NAME:20, V_PID:8, V_TYPE:6, A_PID:8, A_TYPE:6, A_LANG:8, LCN:6, SID:6)
+    Print("\n%-4s %-20s %-8s %-6s %-8s %-6s %-8s %-6s %-6s\n", 
+          "CH", "NAME", "V_PID", "V_TYPE", "A_PID", "A_TYPE", "A_LANG", "LCN", "SID");
+    Print("------------------------------------------------------------------------------------------\n");
 
-	Node* curr = head;
-	while (curr != NULL)
-	{
-		// 6개 필드 모두 출력
-		Print("%-8u %-20s %-4s %-4u %-4s %-4u %-8u %-8u\n", 
-				curr->data.ch, 
-				curr->data.name, 
-				curr->data.lang, ISO639_Alph3ToLang((const char *)curr->data.lang), // ISO 639
-				curr->data.country, ISO3166_GetCountryCodeByAlpha2((const char *)curr->data.country),// ISO 3166
-				curr->data.lcn, 
-				curr->data.sid);
-		
-		curr = curr->next;
-	}
+    Node* curr = head;
+    while (curr != NULL)
+    {
+        // 1. 비디오 스트림 (v=0)과 오디오 스트림 (a=0)을 한 줄에 출력
+        // %-8.8s 등을 사용하여 문자열 길이도 고정 출력
+        Print("%-4u %-20.20s 0x%04X %-6u 0x%04X %-6u %-8.8s %-6u %-6u\n", 
+              curr->data.ch, 
+              curr->data.name, 
+              curr->data.video[0].pid, 
+              curr->data.video[0].type,
+              curr->data.audio[0].pid, 
+              curr->data.audio[0].type, 
+              curr->data.audio[0].lang, 
+              curr->data.lcn, 
+              curr->data.sid);
+
+        // 2. 나머지 오디오 스트림(1~15) 출력
+        for (int a = 1; a < 16; a++)
+        {
+            if (curr->data.audio[a].pid != 0)
+            {
+                // 빈 칸은 비워두고 오디오 정보만 출력 (정렬 유지)
+                Print("%-4s %-20s %-8s %-6s 0x%04X %-6u %-8.8s %-6s %-6s\n",
+                      "", "", "", "", 
+                      curr->data.audio[a].pid, 
+                      curr->data.audio[a].type, 
+                      curr->data.audio[a].lang, "", "");
+            }
+        }
+        curr = curr->next;
+    }
 }
 
 /*-----------------------------------------------------------------------------
-*
-*
-*
-*---------------------------------------------------------------------------*/
-void LinkedList_JsonToCsv(const char* jsonFilename, const char* csvFilename)
-{
-	FILE* jsonFile = fopen(jsonFilename, "r");
-	FILE* csvFile = fopen(csvFilename, "w");
-	if (!jsonFile || !csvFile)
-	{
-		Print("Error: File open failed.\n");
-		if (jsonFile) fclose(jsonFile);
-		if (csvFile) fclose(csvFile);
-		return;
-	}
-
-	char line[512];
-
-	// [수정] 헤더를 6개 필드로 확장
-	fprintf(csvFile, "CH,Name,Lang,Country,LCN,SID\n");
-
-	while (fgets(line, sizeof(line), jsonFile))
-	{
-		if (strstr(line, "{"))
-		{
-			// [수정] country 변수 추가 선언
-			char ch[16] = "", name[64] = "", lang[64] = "", country[64] = "", lcn[16] = "", sid[16] = "";
-
-			while (fgets(line, sizeof(line), jsonFile) && !strstr(line, "}"))
-			{
-				if (strstr(line, "\"CH\"")) sscanf(line, "%*[^:]: \"%[^\"]\"", ch);
-				else if (strstr(line, "\"Name\"")) sscanf(line, "%*[^:]: \"%[^\"]\"", name);
-				else if (strstr(line, "\"Lang\"")) sscanf(line, "%*[^:]: \"%[^\"]\"", lang);
-				else if (strstr(line, "\"Country\"")) sscanf(line, "%*[^:]: \"%[^\"]\"", country); // [수정] country 저장
-				else if (strstr(line, "\"LCN\"")) sscanf(line, "%*[^:]: \"%[^\"]\"", lcn);
-				else if (strstr(line, "\"SID\"")) sscanf(line, "%*[^:]: \"%[^\"]\"", sid);
-			}
-
-			// [수정] 6개 필드 출력
-			fprintf(csvFile, "%s,\"%s\",\"%s\",\"%s\",%s,%s\n", ch, name, lang, country, lcn, sid);
-		}
-	}
-
-	fclose(jsonFile);
-	fclose(csvFile);
-	Print("Successfully converted JSON file to CSV.\n");
-}
-
-/*-----------------------------------------------------------------------------
-*
-*
-*
-*---------------------------------------------------------------------------*/
-void LinkedList_CsvToJson(const char* csvFilename, const char* jsonFilename)
-{
-	FILE* csvFile = fopen(csvFilename, "r");
-	FILE* jsonFile = fopen(jsonFilename, "w");
-	if (!csvFile || !jsonFile)
-	{
-		Print("Error opening files.\n");
-		if (csvFile) fclose(csvFile);
-		if (jsonFile) fclose(jsonFile);
-		return;
-	}
-
-	char line[512];
-	char headers[CHANNEL_LIST_ITEM][32]; 
-	int colCount = 0;
-
-	// 1. 헤더 파싱
-	if (fgets(line, sizeof(line), csvFile))
-	{
-		char* token = strtok(line, ",\n\r"); // 공백 제외(이름에 공백 포함 가능)
-		while (token && colCount < CHANNEL_LIST_ITEM)
-		{
-			strcpy(headers[colCount++], token);
-			token = strtok(NULL, ",\n\r");
-		}
-	}
-
-	fprintf(jsonFile, "[\n");
-
-	// 2. 데이터 읽기
-	int first = 1;
-	while (fgets(line, sizeof(line), csvFile))
-	{
-		// 빈 줄 처리
-		if (line[0] == '\n' || line[0] == '\r') continue;
-
-		if (!first) fprintf(jsonFile, ",\n");
-
-		// [수정] 배열 크기 수정
-		char val[CHANNEL_LIST_ITEM][64]; 
-		int valCount = 0;
-		char* token = strtok(line, ",\n\r");
-		while (token && valCount < CHANNEL_LIST_ITEM)
-		{
-			strcpy(val[valCount++], token);
-			token = strtok(NULL, ",\n\r");
-		}
-
-		fprintf(jsonFile, "  {\n");
-		for (int i = 0; i < valCount; i++)
-		{
-			fprintf(jsonFile, "    \"%s\": \"%s\"%s\n", 
-			headers[i], val[i], (i == valCount - 1) ? "" : ",");
-		}
-		fprintf(jsonFile, "  }");
-		first = 0;
-	}
-
-	fprintf(jsonFile, "\n]");
-
-	fclose(csvFile);
-	fclose(jsonFile);
-	Print("Successfully converted CSV to JSON.\n");
-}
-
-/*-----------------------------------------------------------------------------
-*
+* CSV 파일에서 채널 데이터를 안전하게 로드하고 메모리 풀에 할당
 *
 *
 *---------------------------------------------------------------------------*/
 void LinkedList_ImportFromCSV(const char* filename)
 {
-	FILE* file = fopen(filename, "r");
-	if (!file)
-	{
-		Print("CSV file not found.\n");
-		return;
-	}
+    FILE* file = fopen(filename, "r");
+    if (!file)
+    {
+        Print("[Error] CSV file not found: %s\n", filename);
+        return;
+    }
 
-	// 1. 초기화
-	poolIndex = 0;
-	freeListHead = NULL;
-	head = tail = NULL;
-	lastAssignedCh = 0;
+    // 1. 초기화 (메모리 풀 전체 리셋)
+    memset(nodePool, 0, sizeof(Node) * MAX_POOL_SIZE);
+    poolIndex = 0;
+    head = tail = NULL;
+    lastAssignedCh = 0;
 
-	char line[256];
-	if (!fgets(line, sizeof(line), file))
-	{
-		fclose(file);
-		return;
-	}
+    char line[256];
+    // 헤더 행 건너뛰기
+    if (!fgets(line, sizeof(line), file))
+    {
+        fclose(file);
+        return;
+    }
 
-	int importCount = 0;
-	int skipCount = 0;
+    int importCount = 0;
+    int skipCount = 0;
 
-	while (fgets(line, sizeof(line), file) && poolIndex < MAX_CHANNELS)
-	{
-		Node* newNode = &nodePool[poolIndex++];
+    while (fgets(line, sizeof(line), file) && poolIndex < MAX_POOL_SIZE)
+    {
+        Node* newNode = &nodePool[poolIndex];
+        
+        // [수정] 임시 버퍼 사용: sscanf 결과를 임시 변수에 저장 후 구조체로 복사
+        unsigned short temp_ch, temp_lcn, temp_sid;
+        char temp_name[32], temp_lang[4], temp_country[4];
 
-		int res = sscanf(line, "%hu,\"%63[^\"]\",\"%63[^\"]\",\"%63[^\"]\",%hu,%hu",
-								&newNode->data.ch,
-								newNode->data.name,
-								newNode->data.lang,
-								newNode->data.country,
-								&newNode->data.lcn,
-								&newNode->data.sid);
+        int res = sscanf(line, "%hu,\"%31[^\"]\",\"%3[^\"]\",\"%3[^\"]\",%hu,%hu",
+                         &temp_ch, temp_name, temp_lang, temp_country, &temp_lcn, &temp_sid);
 
-		int isValid = 1;
+        if (res < 6 || strlen(temp_name) == 0)
+        {
+            skipCount++;
+            continue;
+        }
 
-		// [검증 1] 파싱 성공 여부 및 기본값 체크
-		if (res != CHANNEL_LIST_ITEM/* || newNode->data.ch == 0*/ || strlen((char*)newNode->data.name) == 0)
-		{
-			isValid = 0;
-		}
+        // [구조체 반영] 데이터 복사 및 구조체 정의에 맞게 할당
+        newNode->data.ch = temp_ch;
+        strncpy((char*)newNode->data.name, temp_name, sizeof(newNode->data.name) - 1);
+        
+        // AUDIO_INFO 구조체 내부의 0번째 오디오 정보에 언어 코드 할당
+        strncpy((char*)newNode->data.audio[0].lang, temp_lang, sizeof(newNode->data.audio[0].lang) - 1);
+        
+        strncpy((char*)newNode->data.country, temp_country, sizeof(newNode->data.country) - 1);
+        newNode->data.lcn = temp_lcn;
+        newNode->data.sid = temp_sid;
 
-#if 0
-		// [검증 2] SID 범위 체크 (0 제외 및 SID_MASK 0x1FFF 초과 비트 체크)
-		// 사용자가 제안하신 (sid & 0x2000)를 포함하여 마스크 밖의 비트가 있는지 확인합니다.
-		if (isValid && ((newNode->data.sid == 0) || (newNode->data.sid & ~SID_MASK) || (newNode->data.sid > SID_MASK)))
-		{
-			isValid = 0;
-		}
-#endif
+        // [검증 2] SID 유효성 및 중복 체크
+        if (isDuplicateSID(newNode->data.sid) || newNode->data.sid == 0)
+        {
+            skipCount++;
+            continue;
+        }
 
-		// [검증 3] SID 중복 체크
-		if (isValid && isDuplicateSID(newNode->data.sid))
-		{
-			isValid = 0;
-		}
+        // [검증 3] CH 중복 처리
+        if (isDuplicateCH(newNode->data.ch))
+        {
+            newNode->data.ch = ++lastAssignedCh;
+        }
+        else
+        {
+            if (newNode->data.ch > lastAssignedCh)
+                lastAssignedCh = newNode->data.ch;
+        }
 
-		if (isValid)
-		{
-			// 1. CH 중복 체크 및 재부여
-			if (isDuplicateCH(newNode->data.ch))
-			{
-				// 중복되면 현재까지의 최대 번호 + 1 부여
-				newNode->data.ch = ++lastAssignedCh;
-				Print("[Info] Duplicate CH re-assigned to %u\n", newNode->data.ch);
-			}
-			else
-			{
-				// 중복이 아니면 최대 번호(lastAssignedCh) 갱신
-				if (newNode->data.ch > lastAssignedCh)
-				{
-					lastAssignedCh = newNode->data.ch;
-				}
-			}
+        newNode->next = NULL;
+        if (!head) head = tail = newNode;
+        else {
+            tail->next = newNode;
+            tail = newNode;
+        }
+        
+        poolIndex++;
+        importCount++;
+    }
 
-#if 0
-			// 모든 검증 통과 시 마스킹 적용 후 연결
-			newNode->data.sid &= SID_MASK; 
-#endif
-			newNode->next = NULL;
-
-			if (head == NULL)
-			{
-				head = tail = newNode;
-			}
-			else
-			{
-				tail->next = newNode;
-				tail = newNode;
-			}
-			importCount++;
-		}
-		else
-		{
-			poolIndex--; // 유효하지 않은 데이터는 메모리 풀 반환
-			skipCount++;
-		}
-	}
-
-	fclose(file);
-	Print("\n[CSV Import Task Completed]\n");
-	Print(" - Success: %d channels\n", importCount);
-	if (skipCount > 0)
-	{
-		Print(" - Skipped: %d channels (Invalid SID, Range, or Duplicate)\n", skipCount);
-	}
-	Print(" - Next CH to be assigned: %u\n", lastAssignedCh + 1);
+    fclose(file);
+    Print("\n[CSV Import Task Completed]\n - Success: %d, Skipped: %d\n", importCount, skipCount);
 }
 
 /*-----------------------------------------------------------------------------
+* CSV 데이터 내의 따옴표를 이스케이프 처리하여 구조 안정성 확보
 *
+*
+*---------------------------------------------------------------------------*/
+static void fprintf_csv_string(FILE* file, const char* str)
+{
+    fputc('"', file); // 시작 따옴표
+    while (*str) {
+        if (*str == '"') fputc('"', file); // 따옴표가 있으면 두 번 출력하여 이스케이프 (CSV 표준)
+        fputc(*str, file);
+        str++;
+    }
+    fputc('"', file); // 끝 따옴표
+}
+
+/*-----------------------------------------------------------------------------
+* 채널 데이터를 CSV 형식으로 안전하게 내보내기
 *
 *
 *---------------------------------------------------------------------------*/
 void LinkedList_ExportToCSV(const char* filename)
 {
-	if (head == NULL)
-	{
-		Print("\nNo channel data to export.\n");
-		return;
-	}
+    if (head == NULL)
+    {
+        Print("\nNo channel data to export.\n");
+        return;
+    }
 
-	FILE* file = fopen(filename, "w");
-	if (!file)
-	{
-		Print("Failed to create file: %s\n", filename);
-		return;
-	}
+    FILE* file = fopen(filename, "w");
+    if (!file)
+    {
+        Print("[Error] Failed to create file: %s\n", filename);
+        return;
+    }
 
-	// 1. UTF-8 BOM 추가 (엑셀 한글 깨짐 방지 핵심)
-	fputs("\xEF\xBB\xBF", file);
+    // 1. UTF-8 BOM 추가 (엑셀 한글 깨짐 방지)
+    fputs("\xEF\xBB\xBF", file);
 
-	// 2. CSV 헤더 작성
-	fprintf(file, "Channel_No,Name,Lang,Country,LCN,SID\n");
+    // 2. CSV 헤더 작성
+    fprintf(file, "CH,Name,Lang,Country,LCN,SID\n");
 
-	Node* curr = head;
-	int count = 0;
-	while (curr != NULL)
-	{
-		// 3. 데이터 기록 (큰따옴표로 필드 감싸기)
-		fprintf(file, "%u,\"%s\",\"%s\",\"%s\",%u,%u\n",
-				curr->data.ch,
-				curr->data.name,
-				curr->data.lang,	 // ISO 639 코드
-				curr->data.country, // ISO 3166 코드
-				curr->data.lcn,
-				curr->data.sid);
+    Node* curr = head;
+    int count = 0;
+    while (curr != NULL)
+    {
+        // 3. 데이터 기록 (필드별로 이스케이프 처리)
+        fprintf(file, "%u,", curr->data.ch);
+        
+        fprintf_csv_string(file, (char*)curr->data.name);
+        fputc(',', file);
+        
+        fprintf_csv_string(file, (char*)curr->data.audio[0].lang);
+        fputc(',', file);
+        
+        fprintf_csv_string(file, (char*)curr->data.country);
+        
+        fprintf(file, ",%u,%u\n", curr->data.lcn, curr->data.sid);
 
-		curr = curr->next;
-		count++;
-	}
+        curr = curr->next;
+        count++;
+    }
 
-	fclose(file);
-	Print("\n[CSV Export Complete] %d channels saved to '%s'.\n", count, filename);
+    fclose(file);
+    Print("\n[CSV Export Complete] %d channels saved to '%s'.\n", count, filename);
 }
 
 /*-----------------------------------------------------------------------------
+* 대소문자 구분 없는 문자열 검색을 위한 보조 함수
 *
+*
+*---------------------------------------------------------------------------*/
+static int str_contains_nocase(const char *haystack, const char *needle)
+{
+    if (!needle || *needle == '\0') return 1;
+    for (; *haystack != '\0'; haystack++) {
+        if (tolower((unsigned char)*haystack) == tolower((unsigned char)*needle)) {
+            const char *h, *n;
+            for (h = haystack, n = needle; *h != '\0' && *n != '\0'; h++, n++) {
+                if (tolower((unsigned char)*h) != tolower((unsigned char)*n)) break;
+            }
+            if (*n == '\0') return 1;
+        }
+    }
+    return 0;
+}
+
+/*-----------------------------------------------------------------------------
+*  채널 이름으로 검색 (대소문자 구분 없음)
 *
 *
 *---------------------------------------------------------------------------*/
 void LinkedList_SearchChannelByName(char *name)
 {
-	int foundCount = 0;
+    int foundCount = 0;
 
-	if (head == NULL)
-	{
-		Print("\nNo channels registered.\n");
-		return;
-	}
+    if (head == NULL)
+    {
+        Print("\nNo channels registered.\n");
+        return;
+    }
 
-	Print("\n[ Search Results for '%s' ]\n", name);
-	// 헤더와 데이터 개수를 6개로 맞춤 (CH, NAME, LANG, COUNTRY, LCN, SID)
-	Print("%-10s %-20s %-15s %-15s %-10s %-10s\n", "CH", "NAME", "LANG", "CTRY", "LCN", "SID");
-	Print("------------------------------------------------------------\n");
+    Print("\n[ Search Results for Keyword: '%s' ]\n", name);
+    // 헤더: CH(8), NAME(20), LANG(6), CTRY(6), LCN(6), SID(6)
+    Print("%-8s %-20s %-6s %-6s %-6s %-6s\n", "CH", "NAME", "LANG", "CTRY", "LCN", "SID");
+    Print("----------------------------------------------------------------------\n");
 
-	Node* curr = head;
-	while (curr != NULL)
-	{
-#if 0
-		// 대소문자 무시 버전 (strcasestr 사용 가능 환경 시)
-		if (strcasestr((const char*)curr->data.name, name) != NULL)
-		{
-			Print("%-10u %-20s %-15s %-15s %-10u %-10u\n", 
-					curr->data.ch, curr->data.name, curr->data.lang, curr->data.country, curr->data.lcn, curr->data.sid);
-			foundCount++;
-		}
-#else
-		// strstr: curr->data.name 안에 searchName이 포함되어 있는지 확인
-		if (strstr((const char*)curr->data.name, name) != NULL)
-		{
-			Print("%-10u %-20s %-15s %-15s %-10u %-10u\n", 
-					curr->data.ch, curr->data.name, curr->data.lang, curr->data.country, curr->data.lcn, curr->data.sid);
-			foundCount++;
-		}
-#endif
-		curr = curr->next;
-	}
+    Node* curr = head;
+    while (curr != NULL)
+    {
+        // 대소문자 무시 검색 (직접 구현한 str_contains_nocase 함수 사용)
+        if (str_contains_nocase((const char*)curr->data.name, name))
+        {
+            // 구조체 정의에 맞춘 데이터 접근
+            // LANG은 4바이트 배열이므로 %-6.4s를 사용하여 너비 지정
+            Print("%-8u %-20.20s %-6.4s %-6.4s %-6u %-6u\n", 
+                  curr->data.ch, 
+                  curr->data.name, 
+                  curr->data.audio[0].lang, 
+                  curr->data.country, 
+                  curr->data.lcn, 
+                  curr->data.sid);
+            
+            foundCount++;
+        }
+        curr = curr->next;
+    }
 
-	if (foundCount == 0)
-	{
-		Print("No channels found matching the keyword.\n");
-	}
-	else
-	{
-		Print("------------------------------------------------------------\n");
-		Print("Total %d channel(s) found.\n", foundCount);
-	}
+    if (foundCount == 0)
+    {
+        Print("No channels found matching the keyword.\n");
+    }
+    else
+    {
+        Print("----------------------------------------------------------------------\n");
+        Print("Total %d channel(s) found.\n", foundCount);
+    }
 }
 
+
 /*-----------------------------------------------------------------------------
-*
+* LCN(Logical Channel Number)으로 채널 검색
 *
 *
 *---------------------------------------------------------------------------*/
 void LinkedList_SearchChannelByLcn(unsigned short lcn)
 {
-	int foundCount = 0;
+    int foundCount = 0;
 
-	if (head == NULL)
-	{
-		Print("\nNo channels registered.\n");
-		return;
-	}
+    if (head == NULL)
+    {
+        Print("\nNo channels registered.\n");
+        return;
+    }
 
-	Print("\n[ Search Results for '%u' ]\n", lcn);
-	Print("%-10s %-20s %-15s %-15s %-10s %-10s\n", "CH", "NAME", "LANG", "CTRY", "LCN", "SID");
-	Print("------------------------------------------------------------\n");
+    Print("\n[ Search Results for LCN: %u ]\n", lcn);
+    // 다른 함수와 동일한 일관된 헤더 포맷 사용
+    Print("%-8s %-20s %-8s %-8s %-6s %-6s\n", "CH", "NAME", "LANG", "CTRY", "LCN", "SID");
+    Print("----------------------------------------------------------------------\n");
 
-	Node* curr = head;
-	while (curr != NULL)
-	{
-		if (curr->data.lcn == lcn)
-		{
-			Print("%-10u %-20s %-15s %-15s %-10u %-10u\n", 
-					curr->data.ch, curr->data.name, curr->data.lang, curr->data.country, curr->data.lcn, curr->data.sid);
-			foundCount++;
-		}
-		curr = curr->next;
-	}
+    Node* curr = head;
+    while (curr != NULL)
+    {
+        // 입력된 LCN과 일치하는 채널 검색
+        if (curr->data.lcn == lcn)
+        {
+            Print("%-8u %-20.20s %-8s %-8s %-6u %-6u\n", 
+                  curr->data.ch, 
+                  curr->data.name, 
+                  curr->data.audio[0].lang, // 구조체 정의에 따른 올바른 접근
+                  curr->data.country, 
+                  curr->data.lcn, 
+                  curr->data.sid);
+            foundCount++;
+        }
+        curr = curr->next;
+    }
 
-	if (foundCount == 0)
-	{
-		Print("No channels found matching the keyword.\n");
-	}
-	else
-	{
-		Print("------------------------------------------------------------\n");
-		Print("Total %d channel(s) found.\n", foundCount);
-	}
+    if (foundCount == 0)
+    {
+        Print("No channels found matching the LCN.\n");
+    }
+    else
+    {
+        Print("----------------------------------------------------------------------\n");
+        Print("Total %d channel(s) found.\n", foundCount);
+    }
 }
 
 /*-----------------------------------------------------------------------------
-*
+* 채널 번호(CH)로 채널 검색
 *
 *
 *---------------------------------------------------------------------------*/
 void LinkedList_SearchChannelByChannel(unsigned short ch)
 {
-	int foundCount = 0;
+    int foundCount = 0;
 
-	if (head == NULL)
-	{
-		Print("\nNo channels registered.\n");
-		return;
-	}
+    if (head == NULL)
+    {
+        Print("\nNo channels registered.\n");
+        return;
+    }
 
-	Print("\n[ Search Results for '%u' ]\n", ch);
-	Print("%-10s %-20s %-15s %-15s %-10s %-10s\n", "CH", "NAME", "LANG", "CTRY", "LCN", "SID");
-	Print("------------------------------------------------------------\n");
+    Print("\n[ Search Results for Channel: %u ]\n", ch);
+    // 일관된 표 헤더 레이아웃 적용
+    Print("%-8s %-20s %-8s %-8s %-6s %-6s\n", "CH", "NAME", "LANG", "CTRY", "LCN", "SID");
+    Print("----------------------------------------------------------------------\n");
 
-	Node* curr = head;
-	while (curr != NULL)
-	{
-		if (curr->data.ch == ch)
-		{
-			Print("%-10u %-20s %-15s %-15s %-10u %-10u\n", 
-					curr->data.ch, curr->data.name, curr->data.lang, curr->data.country, curr->data.lcn, curr->data.sid);
-			foundCount++;
-		}
-		curr = curr->next;
-	}
+    Node* curr = head;
+    while (curr != NULL)
+    {
+        // 입력된 채널 번호와 일치하는지 확인
+        if (curr->data.ch == ch)
+        {
+            // 구조체 정의(audio[0].lang)에 맞춰 필드 접근 수정
+            Print("%-8u %-20.20s %-8s %-8s %-6u %-6u\n", 
+                  curr->data.ch, 
+                  curr->data.name, 
+                  curr->data.audio[0].lang, 
+                  curr->data.country, 
+                  curr->data.lcn, 
+                  curr->data.sid);
+            foundCount++;
+        }
+        curr = curr->next;
+    }
 
-	if (foundCount == 0)
-	{
-		Print("No channels found matching the keyword.\n");
-	}
-	else
-	{
-		Print("------------------------------------------------------------\n");
-		Print("Total %d channel(s) found.\n", foundCount);
-	}
+    if (foundCount == 0)
+    {
+        Print("No channels found matching the channel number.\n");
+    }
+    else
+    {
+        Print("----------------------------------------------------------------------\n");
+        Print("Total %d channel(s) found.\n", foundCount);
+    }
 }
 
 /*-----------------------------------------------------------------------------
@@ -764,8 +692,8 @@ void LinkedList_SearchChannel(unsigned short ch)
 	{
 		if (curr->data.ch == ch)
 		{
-			Print("\n[Found channel!] NAME: %s, LANG: %s, CTRY: %s, LCN: %u SID: %u\n", 
-			curr->data.name, curr->data.lang, curr->data.country, curr->data.lcn, curr->data.sid);
+			Print("\n[Found channel!] NAME: %s, LCN: %u SID: %u\n", 
+			curr->data.name, curr->data.lcn, curr->data.sid);
 			return;
 		}
 		curr = curr->next;
@@ -780,6 +708,8 @@ void LinkedList_SearchChannel(unsigned short ch)
 *---------------------------------------------------------------------------*/
 void LinkedList_AddChannel(CHANNEL_LIST list)
 {
+	Print("LinkedList_AddChannel\n");
+	
 	Node* newNode = NULL;
 	if (freeListHead != NULL)
 	{
@@ -808,9 +738,13 @@ void LinkedList_AddChannel(CHANNEL_LIST list)
 		sprintf((char*)newNode->data.name, "channel_%d", newNode->data.ch);
 	}
 
-	// 3. Language
-	Print("Language : %s\n", list.lang);
-	memcpy(newNode->data.lang, list.lang, sizeof(list.lang));
+	// 3. Vido PID
+	Print("Video PID : 0x%04x, type 0x%02x\n", list.video[0].pid, list.video[0].type);
+	memcpy(&newNode->data.video[0], &list.video[0], sizeof(VIDEO_INFO)*2);
+
+	// 4. Audio PID
+	Print("Audio PID : 0x%04x, type 0x%02x\n", list.audio[0].pid, list.audio[0].type);
+	memcpy(&newNode->data.audio[0], &list.audio[0], sizeof(AUDIO_INFO)*16);
 
 	// 4. Country
 	Print("Country : %s\n", list.country);

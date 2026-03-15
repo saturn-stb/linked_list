@@ -171,6 +171,7 @@ int main()
 		{
             case 1:
 			{
+				int tempType;
 				CHANNEL_LIST chList;
 				memset(&chList, 0x0, sizeof(CHANNEL_LIST));
 
@@ -182,16 +183,55 @@ int main()
 					Print("Channel name cannot be empty. Cancellation...\n");
 					break;
 				}
-				
-				// 3. Language 입력
-				Print("Lanugage (Kor) : ");
-				safeGets((char *)chList.lang, sizeof(chList.lang));
 
-				// 4. Country 입력
-				Print("Country (KR): ");
-				safeGets((char *)chList.country, sizeof(chList.country));
+				// 3. Video pid 입력
+				Print("Video PID : ");
+				if (scanf("%hu", &(chList.video[0].pid)) != 1)
+				{
+					Print("Invalid input for video PID. Cancellation...\n");
+					clearInputBuffer();
+					break;
+				}
 
-				// 5. LCN 입력
+				// 4. Video type 입력
+				Print("Video type : ");
+				if (scanf("%u", &tempType) != 1)
+				{
+					Print("Invalid input for video type. Cancellation...\n");
+					clearInputBuffer();
+					break;
+				}
+				chList.video[0].type = (unsigned char)tempType;
+
+				// 5. Audio PID 입력
+				Print("Audio PID : ");
+				if (scanf("%hu", &(chList.audio[0].pid)) != 1)
+				{
+					Print("Invalid input for audio PID. Cancellation...\n");
+					clearInputBuffer();
+					break;
+				}
+
+				// 6. Audio type 입력
+				Print("Audio type : ");
+				if (scanf("%d", &tempType) != 1)
+				{
+					Print("Invalid input for audio type. Cancellation...\n");
+					clearInputBuffer();
+					break;
+				}
+				chList.audio[0].type = (unsigned char)tempType;
+
+				// 7. Audio language 입력
+				Print("Audio language : ");
+				if (scanf("%3s", (char *)(chList.audio[0].lang)) != 1)
+				{
+					Print("Invalid input for audio language. Cancellation...\n");
+					clearInputBuffer();
+					break;
+				}
+
+				// 8. LCN 입력
 				Print("LCN (Logical Channel Number): ");
 				if (scanf("%hu", &(chList.lcn)) != 1)
 				{
@@ -199,7 +239,7 @@ int main()
 				}
 				clearInputBuffer();
 				
-				// 6. Service ID 입력 및 검증
+				// 9. Service ID 입력 및 검증
 				Print("Service ID (Cannot be 0): ");
 				if (scanf("%hu", &(chList.sid)) != 1)
 				{
@@ -311,8 +351,6 @@ int main()
             case 10: LinkedList_PrintAllChannels(); break;
 			case 11: LinkedList_ExportToCSV(CHANNEL_LIST_CSV_FILE); break;
 			case 12: LinkedList_ImportFromCSV(CHANNEL_LIST_CSV_FILE); break;
-			case 13: LinkedList_CsvToJson(CHANNEL_LIST_CSV_FILE, CHANNEL_LIST_JSON_FILE); break;
-			case 14: LinkedList_JsonToCsv(CHANNEL_LIST_JSON_FILE, CHANNEL_LIST_CSV_FILE); break;
 
 			case 21:
 			{

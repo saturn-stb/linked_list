@@ -671,16 +671,35 @@ void update_service_from_pmt(scan_service_t *svc, pmt_section_t *pmt)
 		descriptor_t *desc = es->desc;
 		while(desc != NULL)
 		{
-			if(desc->tag == DESC_TAG_ISO_639_LANG)
+			switch(desc->tag)
 			{
-				iso_639_lang_desc_t *lang_desc = (iso_639_lang_desc_t *)desc->data;
-				iso_639_lang_data_t *data = lang_desc->lang_data;
-				if(data != NULL)
+				case DESC_TAG_ISO_639_LANG:
 				{
-					memset(stream->language, 0x0, ISO_LANGUAGE_CODE);
-					memcpy(stream->language, data->lang_code, ISO_LANGUAGE_CODE);
-					Print("    L language : %s | audio type : 0x%02X\n", data->lang_code, data->audio_type);
+					iso_639_lang_desc_t *lang_desc = (iso_639_lang_desc_t *)desc->data;
+					iso_639_lang_data_t *data = lang_desc->lang_data;
+					if(data != NULL)
+					{
+						memset(stream->language, 0x0, ISO_LANGUAGE_CODE);
+						memcpy(stream->language, data->lang_code, ISO_LANGUAGE_CODE);
+						Print("    L language : %s | audio type : 0x%02X\n", data->lang_code, data->audio_type);
+					}
 				}
+				break;
+
+				case DESC_TAG_AC3:
+				{
+					ac3_desc_t *adc_desc = (ac3_desc_t *)desc->data;
+					if(adc_desc != NULL)
+					{
+						Print("    L ac3 type : 0x%02X | bsid : 0x%02X\n", adc_desc->ac3_type, adc_desc->bsid);
+						Print("        mainid : 0x%02X | asvc : 0x%02X\n", adc_desc->mainid, adc_desc->asvc);
+						Print("          info : %s\n", adc_desc->info);
+					}
+				}
+				break;
+
+				default:
+				break;
 			}
 			
 			desc = desc->next;

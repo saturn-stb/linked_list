@@ -27,7 +27,8 @@
 *---------------------------------------------------------------------------*/
 // 데이터 구조체 정의 (linked_list.h 내용 가정)
 #define MAX_CHANNELS           10000
-	
+#define MAX_POOL_SIZE          MAX_CHANNELS
+
 #define SID_MASK		       0x1FFF
 
 #define CHANNEL_LIST_ITEM      6 // CHANNEL_LIST' item number
@@ -58,13 +59,28 @@ typedef enum
 
 typedef struct
 {
+    unsigned char type;    // video type
+    unsigned short pid;    // video PID
+
+} VIDEO_INFO;
+
+typedef struct
+{
+    unsigned char type;    // audio type
+    unsigned short pid;    // audio PID
+    unsigned char lang[4]; // Language Code (ISO639, kor, eng. usa, etc...)
+
+} AUDIO_INFO;
+
+typedef struct
+{
 	unsigned short ch;        // Channel Number (index)
     unsigned char name[32];   // Channel Name
-    unsigned char lang[4];    // Language Code (ISO639, kor, eng. usa, etc...)
-    unsigned char country[4]; // Country code (ISO639, kr, en, ger, deu, fra, ita, etc...)
-    unsigned char reserved[8];
+	VIDEO_INFO video[2]; 
+	AUDIO_INFO audio[16]; 
 	unsigned short lcn;       // Logical Channel Number
 	unsigned short sid;       // Service ID
+    unsigned char country[4]; // Country code (ISO639, kr, en, ger, deu, fra, ita, etc...)
 
 } CHANNEL_LIST;
 
@@ -106,8 +122,6 @@ typedef struct
 *
 *---------------------------------------------------------------------------*/
 extern void LinkedList_PrintAllChannels(void);
-extern void LinkedList_JsonToCsv(const char* jsonFilename, const char* csvFilename);
-extern void LinkedList_CsvToJson(const char* csvFilename, const char* jsonFilename);
 extern void LinkedList_ImportFromCSV(const char* filename);
 extern void LinkedList_ExportToCSV(const char* filename);
 extern void LinkedList_SearchChannelByName(char *name);
