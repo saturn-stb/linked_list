@@ -234,6 +234,7 @@ void print_final_scan_results(dvb_scan_result_t *scan)
         // 상세 스트림 정보(비디오/오디오 PID)까지 보고 싶다면 아래 주석 해제
 		// 스트림 정보 출력 루프 수정	 
 		stream_info_t *stream = svc->streams;
+		int aud_count = 0;
 		while (stream)
 		{
 			const char* type_str = get_stream_type_name(stream->stream_type); // 타입 이름 변환 함수가 있다면 활용
@@ -244,6 +245,27 @@ void print_final_scan_results(dvb_scan_result_t *scan)
 					stream->elementary_pid,
 					stream->elementary_pid,
 					stream->language);
+
+			if((stream->stream_type == ES_MPEG1_VIDEO) ||
+				(stream->stream_type == ES_MPEG2_VIDEO) ||
+				(stream->stream_type == ES_MPEG4_PART2_VIDEO) ||
+				(stream->stream_type == ES_H264_VIDEO) ||
+				(stream->stream_type == ES_HEVC_VIDEO))
+			{
+				chList.video[0].type = stream->stream_type;
+				chList.video[0].pid = stream->elementary_pid;
+			}
+			else if((stream->stream_type == ES_MPEG1_AUDIO) ||
+					(stream->stream_type == ES_MPEG2_AUDIO) ||
+					(stream->stream_type == ES_AAC_AUDIO) ||
+					(stream->stream_type == ES_14496_3_AUDIO_LATM) ||
+					(stream->stream_type == ES_AC3_AUDIO))
+			{
+				chList.audio[aud_count].type = stream->stream_type;
+				chList.audio[aud_count].pid = stream->elementary_pid;
+				memcpy(chList.audio[aud_count].lang, stream->language, 3);
+				aud_count++;
+			}
 
 			stream = stream->next;
 		}

@@ -135,7 +135,7 @@ void LinkedList_PrintAllChannels(void)
             if (curr->data.audio[a].pid != 0)
             {
                 // 빈 칸은 비워두고 오디오 정보만 출력 (정렬 유지)
-                Print("%-4s %-20s %-8s %-6s 0x%04X %-6u %-8.8s %-6s %-6s\n",
+                Print("%-4s %-20s %-6s %-6s 0x%04X %-6u %-8.8s %-6s %-6s\n",
                       "", "", "", "", 
                       curr->data.audio[a].pid, 
                       curr->data.audio[a].type, 

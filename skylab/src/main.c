@@ -364,7 +364,7 @@ int main()
 				}
 				clearInputBuffer();
 
-				open_channel_file((char *)"astra192E-ts1080-2018-05-11.ts");
+				open_channel_file(fileName);
 			}
 			break;
 			

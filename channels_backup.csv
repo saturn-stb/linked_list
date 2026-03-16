@@ -1,14 +1,22 @@
-﻿Channel_No,Name,Lang,Country,LCN,SID
-1,"KBS","kor","KR",7,1234
+﻿CH,Name,Lang,Country,LCN,SID
+1,"KBS","kor","",7,3456
 2,"Unknown","","",0,0
-3,"CANAL+","","",0,8801
-4,"CANAL+ DECALE","","",0,8802
-5,"CANAL+ CINEMA","","",0,8803
-6,"CANAL+ SPORT","","",0,8804
-7,"CANAL+ FAMILY","","",0,8805
-8,"CANAL+ SERIES","","",0,8806
-9,"CINE+ FRISSON","","",0,8807
-10,"CINE+ FAMIZ","","",0,8808
-11,"CINE+ CLASSIC","","",0,8809
-12,"CNEWS","","",0,8810
-13,"DATASYSTEM","","",0,8899
+3,"Servizio 31","","",0,31
+4,"Servizio 32","","",0,32
+5,"Servizio 33","eng","",0,33
+6,"Servizio 34","","",0,34
+7,"Servizio 35","","",0,35
+8,"Servizio 36","","",0,36
+9,"Servizio 37","","",0,37
+10,"Servizio 38","","",0,38
+11,"Servizio 39","","",0,39
+12,"Ghost","","",0,99
+13,"Rete4 HD","eng","",4,3004
+14,"Canale5 HD","eng","",5,3005
+15,"Italia1 HD","eng","",6,3006
+16,"Mediaset Extra","ita","",55,3055
+17,"Mediaset Italia Due","ita","",66,3066
+18,"Rete4 HD","eng","",504,3104
+19,"Canale5 HD","eng","",505,3105
+20,"Italia1 HD","eng","",506,3106
+21,"Mediaset Italia Due","ita","",566,3166
