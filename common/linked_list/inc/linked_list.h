@@ -80,6 +80,7 @@ typedef struct
 	AUDIO_INFO audio[16]; 
 	unsigned short lcn;       // Logical Channel Number
 	unsigned short sid;       // Service ID
+	unsigned char type;       // service type (TV, RADIO, etc...)
     unsigned char country[4]; // Country code (ISO639, kr, en, ger, deu, fra, ita, etc...)
 
 } CHANNEL_LIST;

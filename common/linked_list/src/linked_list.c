@@ -109,8 +109,8 @@ void LinkedList_PrintAllChannels(void)
     }
 
     // 헤더: 열별 너비를 통일 (CH:4, NAME:20, V_PID:8, V_TYPE:6, A_PID:8, A_TYPE:6, A_LANG:8, LCN:6, SID:6)
-    Print("\n%-4s %-20s %-8s %-6s %-8s %-6s %-8s %-6s %-6s\n", 
-          "CH", "NAME", "V_PID", "V_TYPE", "A_PID", "A_TYPE", "A_LANG", "LCN", "SID");
+    Print("\n%-4s %-20s %-8s %-4s %-8s %-6s %-8s %-4s %-6s %-6s\n", 
+          "CH", "NAME", "V_PID", "V_T", "A_PID", "A_T", "LANG", "LCN", "S_T", "SID");
     Print("------------------------------------------------------------------------------------------\n");
 
     Node* curr = head;
@@ -118,7 +118,7 @@ void LinkedList_PrintAllChannels(void)
     {
         // 1. 비디오 스트림 (v=0)과 오디오 스트림 (a=0)을 한 줄에 출력
         // %-8.8s 등을 사용하여 문자열 길이도 고정 출력
-        Print("%-4u %-20.20s 0x%04X %-6u 0x%04X %-6u %-8.8s %-6u %-6u\n", 
+        Print("%-4u %-20.20s 0x%04X   0x%02X 0x%04X   0x%02X   %-8.8s %-4u 0x%02X   0x%04X\n", 
               curr->data.ch, 
               curr->data.name, 
               curr->data.video[0].pid, 
@@ -126,7 +126,8 @@ void LinkedList_PrintAllChannels(void)
               curr->data.audio[0].pid, 
               curr->data.audio[0].type, 
               curr->data.audio[0].lang, 
-              curr->data.lcn, 
+              curr->data.lcn,
+              curr->data.type,
               curr->data.sid);
 
         // 2. 나머지 오디오 스트림(1~15) 출력
@@ -135,7 +136,7 @@ void LinkedList_PrintAllChannels(void)
             if (curr->data.audio[a].pid != 0)
             {
                 // 빈 칸은 비워두고 오디오 정보만 출력 (정렬 유지)
-                Print("%-4s %-20s %-6s %-6s 0x%04X %-6u %-8.8s %-6s %-6s\n",
+                Print("%-4s %-20s %-4s   %-6s 0x%04X   0x%02X   %-8.8s %-6s   %-6s\n",
                       "", "", "", "", 
                       curr->data.audio[a].pid, 
                       curr->data.audio[a].type, 
@@ -160,82 +161,104 @@ void LinkedList_ImportFromCSV(const char* filename)
         return;
     }
 
-    // 1. 초기화 (메모리 풀 전체 리셋)
-    memset(nodePool, 0, sizeof(Node) * MAX_POOL_SIZE);
+    // 메모리 풀 리셋
+    memset(nodePool, 0, sizeof(Node) * MAX_CHANNELS);
     poolIndex = 0;
     head = tail = NULL;
     lastAssignedCh = 0;
 
-    char line[256];
+    char line[1024]; // 필드가 많으므로 버퍼를 충분히 확보
     // 헤더 행 건너뛰기
-    if (!fgets(line, sizeof(line), file))
-    {
-        fclose(file);
-        return;
-    }
+    if (!fgets(line, sizeof(line), file)) { fclose(file); return; }
 
     int importCount = 0;
     int skipCount = 0;
-
-    while (fgets(line, sizeof(line), file) && poolIndex < MAX_POOL_SIZE)
+    while (fgets(line, sizeof(line), file) && poolIndex < MAX_CHANNELS)
     {
         Node* newNode = &nodePool[poolIndex];
         
-        // [수정] 임시 버퍼 사용: sscanf 결과를 임시 변수에 저장 후 구조체로 복사
-        unsigned short temp_ch, temp_lcn, temp_sid;
-        char temp_name[32], temp_lang[4], temp_country[4];
-
-        int res = sscanf(line, "%hu,\"%31[^\"]\",\"%3[^\"]\",\"%3[^\"]\",%hu,%hu",
-                         &temp_ch, temp_name, temp_lang, temp_country, &temp_lcn, &temp_sid);
-
-        if (res < 6 || strlen(temp_name) == 0)
-        {
-            skipCount++;
-            continue;
+        // 쉼표 단위로 파싱 (임시 토큰 저장)
+        // 주의: 이 구현은 필드 내에 콤마가 없는 경우를 가정합니다.
+        // 큰따옴표 안의 콤마까지 완벽 처리하려면 복잡한 파서가 필요합니다.
+        char *token = strtok(line, ",");
+        if (!token) continue;
+        
+        newNode->data.ch = atoi(token);
+        
+        // Name (큰따옴표 제거)
+        token = strtok(NULL, ",");
+        if (token) {
+            char* name = token;
+            if (name[0] == '"') name++;
+            if (name[strlen(name)-1] == '"') name[strlen(name)-1] = '\0';
+            strncpy((char*)newNode->data.name, name, 31);
         }
 
-        // [구조체 반영] 데이터 복사 및 구조체 정의에 맞게 할당
-        newNode->data.ch = temp_ch;
-        strncpy((char*)newNode->data.name, temp_name, sizeof(newNode->data.name) - 1);
-        
-        // AUDIO_INFO 구조체 내부의 0번째 오디오 정보에 언어 코드 할당
-        strncpy((char*)newNode->data.audio[0].lang, temp_lang, sizeof(newNode->data.audio[0].lang) - 1);
-        
-        strncpy((char*)newNode->data.country, temp_country, sizeof(newNode->data.country) - 1);
-        newNode->data.lcn = temp_lcn;
-        newNode->data.sid = temp_sid;
+        // Video 0, 1
+        newNode->data.video[0].pid = atoi(strtok(NULL, ","));
+        newNode->data.video[0].type = atoi(strtok(NULL, ","));
+        newNode->data.video[1].pid = atoi(strtok(NULL, ","));
+        newNode->data.video[1].type = atoi(strtok(NULL, ","));
 
-        // [검증 2] SID 유효성 및 중복 체크
+        // Audio 0 ~ 15
+        for(int i = 0; i < 16; i++) {
+            newNode->data.audio[i].pid = atoi(strtok(NULL, ","));
+            newNode->data.audio[i].type = atoi(strtok(NULL, ","));
+            char* lang = strtok(NULL, ",");
+            if (lang) {
+                if (lang[0] == '"') lang++;
+                if (lang[strlen(lang)-1] == '"') lang[strlen(lang)-1] = '\0';
+                strncpy((char*)newNode->data.audio[i].lang, lang, 3);
+            }
+        }
+
+        // 나머지 필드 (LCN, SID, Type, Country)
+        newNode->data.lcn = atoi(strtok(NULL, ","));
+        newNode->data.sid = atoi(strtok(NULL, ","));
+        newNode->data.type = atoi(strtok(NULL, ","));
+
+        char* country = strtok(NULL, "\n"); // 마지막 필드
+        if (country) {
+            if (country[0] == '"') country++;
+            if (country[strlen(country)-1] == '"') country[strlen(country)-1] = '\0';
+            strncpy((char*)newNode->data.country, country, 3);
+        }
+
+#if 0
+        // [검증 1] SID 유효성 및 중복 체크
         if (isDuplicateSID(newNode->data.sid) || newNode->data.sid == 0)
         {
+			Print("[Warning] Skipping duplicate or invalid SID: %u\n", newNode->data.sid);
             skipCount++;
             continue;
         }
 
-        // [검증 3] CH 중복 처리
-        if (isDuplicateCH(newNode->data.ch))
-        {
-            newNode->data.ch = ++lastAssignedCh;
-        }
-        else
-        {
-            if (newNode->data.ch > lastAssignedCh)
-                lastAssignedCh = newNode->data.ch;
-        }
+        // [검증 2] CH 중복 처리
+		// 재부여 시에도 기존 번호와 중복되지 않도록 루프 사용
+		while (isDuplicateCH(newNode->data.ch))
+		{
+			newNode->data.ch = ++lastAssignedCh;
+			Print("[Info] Duplicate CH re-assigned to %u\n", newNode->data.ch);
+		}
 
+		// 최대값 갱신
+		if (newNode->data.ch > lastAssignedCh)
+		{
+			lastAssignedCh = newNode->data.ch;
+		}
+#endif
+
+        // 연결 리스트 연결 및 마무리
         newNode->next = NULL;
         if (!head) head = tail = newNode;
-        else {
-            tail->next = newNode;
-            tail = newNode;
-        }
+        else { tail->next = newNode; tail = newNode; }
         
         poolIndex++;
         importCount++;
     }
 
     fclose(file);
-    Print("\n[CSV Import Task Completed]\n - Success: %d, Skipped: %d\n", importCount, skipCount);
+    Print("[Import Complete] %d channels loaded, Skipped %d\n", importCount, skipCount);
 }
 
 /*-----------------------------------------------------------------------------
@@ -267,6 +290,7 @@ void LinkedList_ExportToCSV(const char* filename)
         return;
     }
 
+    // "w" 모드는 파일이 존재하면 내용을 삭제하고 새로 생성(Truncate)합니다.
     FILE* file = fopen(filename, "w");
     if (!file)
     {
@@ -274,28 +298,40 @@ void LinkedList_ExportToCSV(const char* filename)
         return;
     }
 
-    // 1. UTF-8 BOM 추가 (엑셀 한글 깨짐 방지)
+    // 1. UTF-8 BOM 추가
     fputs("\xEF\xBB\xBF", file);
 
-    // 2. CSV 헤더 작성
-    fprintf(file, "CH,Name,Lang,Country,LCN,SID\n");
+    // 2. CSV 헤더 작성 (필드 구성에 맞게 확장)
+	fprintf(file, "CH,Name,V1_PID,V1_Type,V2_PID,V2_Type");
+	for (int i = 0; i < 16; i++)
+	{
+		fprintf(file, ",A%d_PID,A%d_Type,A%d_Lang", i+1, i+1, i+1);
+	}
+	fprintf(file, ",LCN,SID,Type,Country\n");
 
     Node* curr = head;
     int count = 0;
     while (curr != NULL)
     {
-        // 3. 데이터 기록 (필드별로 이스케이프 처리)
+        // 3. 한 줄에 모든 데이터를 기록
         fprintf(file, "%u,", curr->data.ch);
-        
         fprintf_csv_string(file, (char*)curr->data.name);
-        fputc(',', file);
         
-        fprintf_csv_string(file, (char*)curr->data.audio[0].lang);
-        fputc(',', file);
-        
+        // Video 0, 1
+        fprintf(file, ",%u,%u,%u,%u", curr->data.video[0].pid, curr->data.video[0].type,
+                                      curr->data.video[1].pid, curr->data.video[1].type);
+		// Audio 0 ~ 15 전체 16개 기록
+		for (int i = 0; i < 16; i++)
+		{
+			fprintf(file, ",%u,%u,", curr->data.audio[i].pid, curr->data.audio[i].type);
+			fprintf_csv_string(file, (char*)curr->data.audio[i].lang);
+		}
+
+        // 나머지 필드
+        fprintf(file, ",%u,%u,%u,", curr->data.lcn, curr->data.sid, curr->data.type);
         fprintf_csv_string(file, (char*)curr->data.country);
         
-        fprintf(file, ",%u,%u\n", curr->data.lcn, curr->data.sid);
+        fprintf(file, "\n"); // 한 채널당 딱 한 번 줄바꿈
 
         curr = curr->next;
         count++;
@@ -709,7 +745,16 @@ void LinkedList_SearchChannel(unsigned short ch)
 void LinkedList_AddChannel(CHANNEL_LIST list)
 {
 	Print("LinkedList_AddChannel\n");
-	
+
+#if 0
+	// [검증 1] 유효한 미디어 서비스만 필터링 (필수)	
+	// 비디오 PID가 0이고 오디오 PID도 0이면 TV 채널이 아닙니다.
+	if (list.video[0].pid == 0 && list.audio[0].pid == 0)
+	{
+		return; // TV 서비스가 아니면 무시
+	}	
+#endif
+
 	Node* newNode = NULL;
 	if (freeListHead != NULL)
 	{
@@ -726,8 +771,16 @@ void LinkedList_AddChannel(CHANNEL_LIST list)
 		return;
 	}
 
-	// 1. 자동 채널 번호 할당 (CH)
-	newNode->data.ch = ++lastAssignedCh;
+	// 1. 채널 번호(CH) 중복 및 자동 할당 로직
+	// 입력받은 list.ch가 0이면 새로 번호를 부여하고, 이미 존재하면 +1 합니다.
+	unsigned short newCh = (list.ch == 0) ? (lastAssignedCh + 1) : list.ch;
+
+	while (isDuplicateCH(newCh))
+	{
+		newCh++;
+	}
+	newNode->data.ch = newCh;
+	lastAssignedCh = newCh; // 현재 할당된 번호로 갱신
 	Print("Assigning Channel Number : %u\n", newNode->data.ch);
 
 	// 2. 채널 이름 입력 및 검증
@@ -746,10 +799,6 @@ void LinkedList_AddChannel(CHANNEL_LIST list)
 	Print("Audio PID : 0x%04x, type 0x%02x\n", list.audio[0].pid, list.audio[0].type);
 	memcpy(&newNode->data.audio[0], &list.audio[0], sizeof(AUDIO_INFO)*16);
 
-	// 4. Country
-	Print("Country : %s\n", list.country);
-	memcpy(newNode->data.country, list.country, sizeof(list.country));
-
 	// 5. LCN
 	Print("Logical Channel Number : %d\n", list.lcn);
 	newNode->data.lcn = list.lcn;
@@ -758,13 +807,23 @@ void LinkedList_AddChannel(CHANNEL_LIST list)
 	Print("Service ID : %d\n", list.sid);
 	newNode->data.sid = list.sid;
 
+	// 7. Service Type 
+	Print("Service Type : %d\n", list.type);
+	newNode->data.type = list.type;
+	
+	// 8. Country
+	Print("Country : %s\n", list.country);
+	memcpy(newNode->data.country, list.country, sizeof(list.country));
+
 #if 1
-	// [검증 2] SID 중복 체크 (추가된 부분)
+	#if 0
+	// [검증 1] SID 중복 체크 (추가된 부분)
 	if (isDuplicateSID(newNode->data.sid))
 	{
-		Print("[Error] SID %u already exists. Each channel must have a unique SID.\n", newNode->data.sid);
+		Print("[Error] SID %u(0x%04X) already exists. Each channel must have a unique SID.\n", newNode->data.sid, newNode->data.sid);
 		goto cancel_add;
 	}
+	#endif
 #else
 	// [검증 1] SID 0 체크
 	// 0x2000 이상의 비트가 포함되어 있거나, 마스킹 후 0이 되는 경우 차단
@@ -796,6 +855,7 @@ void LinkedList_AddChannel(CHANNEL_LIST list)
 		tail->next = newNode;
 		tail = newNode;
 	}
+
 	Print("Channel added successfully (CH: %u, SID: %u).\n", newNode->data.ch, newNode->data.sid);
 	return;
 
@@ -864,7 +924,7 @@ void LinkedList_LoadFromFile(const char* filename)
 			isValid = 0;
 		}
 #endif
-
+#if 0
 		// [검증 2] SID 중복 체크
 		// 불러오는 과정에서 파일 내 중복 데이터가 있을 경우 차단
 		if (isValid && isDuplicateSID(newNode->data.sid))
@@ -883,9 +943,10 @@ void LinkedList_LoadFromFile(const char* filename)
 		{
 			isValid = 0;
 		}
-
+#endif
 		if (isValid)
 		{
+#if 0
 			// 1. CH 중복 체크 및 재부여
 			if (isDuplicateCH(newNode->data.ch))
 			{
@@ -894,6 +955,7 @@ void LinkedList_LoadFromFile(const char* filename)
 				Print("[Info] Duplicate CH re-assigned to %u\n", newNode->data.ch);
 			}
 			else
+#endif
 			{
 				// 중복이 아니면 최대 번호(lastAssignedCh) 갱신
 				if (newNode->data.ch > lastAssignedCh)

@@ -230,6 +230,7 @@ void print_final_scan_results(dvb_scan_result_t *scan)
 		memcpy(chList.name, name, strlen(name));
 		chList.sid = svc->program_number;
 		chList.lcn = svc->lcn;
+		chList.type = svc->service_type;
 
         // 상세 스트림 정보(비디오/오디오 PID)까지 보고 싶다면 아래 주석 해제
 		// 스트림 정보 출력 루프 수정	 
@@ -763,13 +764,14 @@ void update_service_from_sdt(dvb_scan_result_t *scan, sdt_section_t *sdt)
 						service_desc_t *svc_desc = (service_desc_t *)desc->data;
 						if (svc_desc && svc_desc->service_name_len > 0)
 						{
+							curr_svc->service_type = svc_desc->service_type;
 							memset(curr_svc->service_name, 0, sizeof(curr_svc->service_name));
 							int copy_len = (svc_desc->service_name_len < (int)sizeof(curr_svc->service_name) - 1) ? 
 											svc_desc->service_name_len : (int)sizeof(curr_svc->service_name) - 1;
 							memcpy(curr_svc->service_name, svc_desc->service_name, copy_len);
 							curr_svc->service_name[copy_len] = '\0';
 							
-							Print("   L Service ID: 0x%04X | Name: %s\n", sdt_svc->service_id, curr_svc->service_name);
+							Print("   L Service ID: 0x%04X | Name: %20s | Service Type 0x%02x\n", sdt_svc->service_id, svc_desc->service_name, svc_desc->service_type);
 						}
 						break;
 					}
